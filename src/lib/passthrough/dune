@@ -1,0 +1,6 @@
+(library
+ (name cshell_passthrough)
+ (public_name cshell.passthrough)
+ (preprocess
+  (pps ppx_repr))
+ (libraries cshell))

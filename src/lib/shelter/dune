@@ -1,0 +1,6 @@
+(library
+ (name shelter)
+ (public_name cshell.shelter)
+ (preprocess
+  (pps ppx_repr))
+ (libraries cshell cid void))

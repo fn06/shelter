@@ -1,0 +1,5 @@
+(executable
+ (public_name cshell)
+ (package cshell)
+ (name main)
+ (libraries cshell fmt.tty cshell.shelter cshell.passthrough eio void))

@@ -1,0 +1,4 @@
+(library
+ (name cshell)
+ (public_name cshell)
+ (libraries irmin-fs.unix eio.unix eio linenoise void repr))
