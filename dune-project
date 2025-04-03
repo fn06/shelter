@@ -25,6 +25,7 @@
    zfs
    cid
    ppx_repr
+   irmin-fs
   )
  (tags
   ("shell")))

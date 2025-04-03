@@ -16,6 +16,7 @@ depends: [
   "zfs"
   "cid"
   "ppx_repr"
+  "irmin-fs"
   "odoc" {with-doc}
 ]
 build: [
@@ -33,3 +34,9 @@ build: [
   ]
 ]
 dev-repo: "git+https://github.com/username/reponame.git"
+pin-depends:[
+  [ "zfs.dev"      "git+https://github.com/patricoferris/ocaml-zfs" ]
+  [ "void.dev"     "git+https://github.com/quantifyearth/void" ]
+  [ "irmin.dev"    "git+https://github.com/mirage/irmin#eio" ]
+  [ "irmin-fs.dev" "git+https://github.com/mirage/irmin#eio" ]
+]
