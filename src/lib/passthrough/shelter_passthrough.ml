@@ -10,7 +10,7 @@ type entry = string [@@derviving repr]
 let () = Fmt.set_style_renderer Format.str_formatter `Ansi_tty
 
 let prompt _ _ =
-  Fmt.(styled (`Fg `Red) string) Format.str_formatter "cshell> ";
+  Fmt.(styled (`Fg `Red) string) Format.str_formatter "shelter-p> ";
   Format.flush_str_formatter ()
 
 let history_key = [ "history" ]
@@ -38,7 +38,7 @@ let run _fs clock proc
        full_store),
       () ) (Exec command) =
   let info () =
-    S.Info.v ~message:"cshell" (Eio.Time.now clock |> Int64.of_float)
+    S.Info.v ~message:"shelter" (Eio.Time.now clock |> Int64.of_float)
   in
   let cmd =
     String.split_on_char ' ' command

@@ -161,7 +161,7 @@ let prompt status ((H.Store ((module S), _session) : entry H.t) as store) =
 type ctx = Store.t
 
 let init fs proc s =
-  let store = Store.init fs proc "test-pool" in
+  let store = Store.init fs proc "shelter" in
   List.iter
     (fun (_, { History.args; _ }) ->
       LNoise.history_add (String.concat " " args) |> ignore)
