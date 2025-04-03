@@ -1,26 +1,31 @@
 (lang dune 3.17)
 
-(name cshell)
+(name shelter)
 
 (generate_opam_files true)
 
 (source
  (github username/reponame))
 
-(authors "Author Name <author@example.com>")
+(authors "Patrick Ferris <patrick@sirref.org>")
 
-(maintainers "Maintainer Name <maintainer@example.com>")
+(maintainers "Patrick Ferris <patrick@sirref.org>")
 
-(license LICENSE)
+(license ISC)
 
-(documentation https://url/to/documentation)
 
 (package
- (name cshell)
- (synopsis "A short synopsis")
- (description "A longer description")
- (depends ocaml)
+ (name shelter)
+ (synopsis "Shelter from the Storm")
+ (description "A shell session shim to help you explore!")
+ (depends
+   ocaml
+   eio_posix
+   void
+   zfs
+   cid
+   ppx_repr
+  )
  (tags
-  ("add topics" "to describe" your project)))
+  ("shell")))
 
-; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html

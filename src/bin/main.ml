@@ -5,8 +5,8 @@ module History = struct
   let merge = Irmin.Merge.default (Repr.option t)
 end
 
-module Pass = Cshell.Make (History) (Cshell_passthrough)
-module Shelter = Cshell.Make (Shelter.History) (Shelter)
+module Pass = Shelter.Make (History) (Shelter_passthrough)
+module Shelter = Shelter.Make (Shelter_main.History) (Shelter_main)
 
 let home = Unix.getenv "HOME"
 

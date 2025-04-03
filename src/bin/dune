@@ -1,5 +1,5 @@
 (executable
- (public_name cshell)
- (package cshell)
+ (public_name shelter)
+ (package shelter)
  (name main)
- (libraries cshell fmt.tty cshell.shelter cshell.passthrough eio void))
+ (libraries shelter fmt.tty shelter.main shelter.passthrough eio void))

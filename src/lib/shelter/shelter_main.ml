@@ -1,6 +1,6 @@
 open Eio
 module Store = Store
-module H = Cshell.History
+module H = Shelter.History
 
 module History = struct
   type mode = Void.mode

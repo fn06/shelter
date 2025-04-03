@@ -1,6 +1,6 @@
 (library
- (name shelter)
- (public_name cshell.shelter)
+ (name shelter_main)
+ (public_name shelter.main)
  (preprocess
   (pps ppx_repr))
- (libraries cshell cid void zfs))
+ (libraries shelter cid void zfs))

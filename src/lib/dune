@@ -1,4 +1,4 @@
 (library
- (name cshell)
- (public_name cshell)
+ (name shelter)
+ (public_name shelter)
  (libraries irmin-fs.unix eio.unix eio linenoise void repr))

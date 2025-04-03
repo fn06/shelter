@@ -13,4 +13,4 @@ module History : sig
   include Irmin.Contents.S with type t := t
 end
 
-include Cshell.Engine.S with type entry = History.t
+include Shelter.Engine.S with type entry = History.t

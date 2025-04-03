@@ -18,8 +18,8 @@ let key () = history_key @ [ string_of_float @@ Unix.gettimeofday () ]
 
 type ctx = unit
 
-let init _ _ (Cshell.History.Store ((module S), store) : entry Cshell.History.t)
-    =
+let init _ _
+    (Shelter.History.Store ((module S), store) : entry Shelter.History.t) =
   match S.list store history_key with
   | [] -> ()
   | xs ->
@@ -34,7 +34,7 @@ let init _ _ (Cshell.History.Store ((module S), store) : entry Cshell.History.t)
       List.iter (fun v -> LNoise.history_add v |> ignore) entries
 
 let run _fs clock proc
-    ( ((Cshell.History.Store ((module S), store) : entry Cshell.History.t) as
+    ( ((Shelter.History.Store ((module S), store) : entry Shelter.History.t) as
        full_store),
       () ) (Exec command) =
   let info () =

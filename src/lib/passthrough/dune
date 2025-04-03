@@ -1,6 +1,6 @@
 (library
- (name cshell_passthrough)
- (public_name cshell.passthrough)
+ (name shelter_passthrough)
+ (public_name shelter.passthrough)
  (preprocess
   (pps ppx_repr))
- (libraries cshell))
+ (libraries shelter))
