@@ -7,16 +7,25 @@ module type S = sig
 
   type entry
 
-  val init : entry History.t -> unit
+  type ctx
+  (** A context that is not persisted, but is passed through each loop of the
+      shell *)
+
+  val init :
+    _ Eio.Path.t ->
+    Eio_unix.Process.mgr_ty Eio_unix.Process.mgr ->
+    entry History.t ->
+    ctx
   (** [init store] will be called before entering the shell loop. You may wish
       to setup history completions etc. with LNoise. *)
 
   val run :
+    _ Eio.Path.t ->
     _ Eio.Time.clock ->
     Eio_unix.Process.mgr_ty Eio_unix.Process.mgr ->
-    entry History.t ->
+    entry History.t * ctx ->
     action ->
-    (entry History.t, Eio.Process.error) result
+    (entry History.t * ctx, Eio.Process.error) result
   (** [run history action] runs the action in [history]. Return a new [history]
       that can be persisted *)
 

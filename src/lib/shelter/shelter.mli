@@ -1,11 +1,13 @@
-module Build : sig
-  type t = Image of string | Build of Cid.t [@@deriving repr]
-end
-
-type mode = R | RW
+module Store = Store
 
 module History : sig
-  type t = { mode : mode; build : Build.t; args : string list }
+  type t = {
+    mode : Void.mode;
+    build : Store.Build.t;
+    args : string list;
+    time : int64;
+    diff : Diff.t;
+  }
   [@@deriving repr]
 
   include Irmin.Contents.S with type t := t

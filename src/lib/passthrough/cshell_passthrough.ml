@@ -16,7 +16,10 @@ let prompt _ _ =
 let history_key = [ "history" ]
 let key () = history_key @ [ string_of_float @@ Unix.gettimeofday () ]
 
-let init (Cshell.History.Store ((module S), store) : entry Cshell.History.t) =
+type ctx = unit
+
+let init _ _ (Cshell.History.Store ((module S), store) : entry Cshell.History.t)
+    =
   match S.list store history_key with
   | [] -> ()
   | xs ->
@@ -30,9 +33,10 @@ let init (Cshell.History.Store ((module S), store) : entry Cshell.History.t) =
       in
       List.iter (fun v -> LNoise.history_add v |> ignore) entries
 
-let run clock proc
-    ((Cshell.History.Store ((module S), store) : entry Cshell.History.t) as
-     full_store) (Exec command) =
+let run _fs clock proc
+    ( ((Cshell.History.Store ((module S), store) : entry Cshell.History.t) as
+       full_store),
+      () ) (Exec command) =
   let info () =
     S.Info.v ~message:"cshell" (Eio.Time.now clock |> Int64.of_float)
   in
@@ -47,6 +51,6 @@ let run clock proc
     if res = `Exited 0 then (
       S.set_exn ~info store (key ()) command;
       let _ : (unit, string) result = LNoise.history_add command in
-      Ok full_store)
+      Ok (full_store, ()))
     else Error (Eio.Process.Child_error res)
   with Eio.Exn.Io (Eio.Process.E e, _) -> Error e

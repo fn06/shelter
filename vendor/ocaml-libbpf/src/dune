@@ -1,0 +1,7 @@
+(library
+ (name libbpf)
+ (public_name libbpf)
+ (libraries c))
+
+(documentation
+ (package libbpf))

@@ -3,4 +3,4 @@
  (public_name cshell.shelter)
  (preprocess
   (pps ppx_repr))
- (libraries cshell cid void))
+ (libraries cshell cid void zfs))

@@ -21,7 +21,7 @@ let () =
   match Sys.argv.(1) with
   | "shelter" ->
       let dir = state_dir env#fs "shelter" in
-      Shelter.main env#clock env#process_mgr dir
+      Shelter.main env#fs env#clock env#process_mgr dir
   | _ | (exception Invalid_argument _) ->
       let dir = state_dir env#fs "passthrough" in
-      Pass.main env#clock env#process_mgr dir
+      Pass.main env#fs env#clock env#process_mgr dir
