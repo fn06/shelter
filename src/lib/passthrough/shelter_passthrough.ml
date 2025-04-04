@@ -1,5 +1,9 @@
 open Eio
 
+type config = unit
+
+let config_term = Cmdliner.Term.const ()
+
 type action = Exec of string [@@deriving repr]
 
 let action = action_t
@@ -33,7 +37,7 @@ let init _ _
       in
       List.iter (fun v -> LNoise.history_add v |> ignore) entries
 
-let run _fs clock proc
+let run (() : config) _fs clock proc
     ( ((Shelter.History.Store ((module S), store) : entry Shelter.History.t) as
        full_store),
       () ) (Exec command) =

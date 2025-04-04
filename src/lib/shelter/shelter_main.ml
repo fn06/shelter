@@ -23,6 +23,10 @@ module History = struct
   let merge = Irmin.Merge.(default (Repr.option t))
 end
 
+type config = Config.t
+
+let config_term = Config.cmdliner
+
 type entry = History.t
 
 type action =
@@ -168,8 +172,8 @@ let init fs proc s =
     (list s);
   store
 
-let run _fs clock _proc (((H.Store ((module S), store) : entry H.t) as s), ctx)
-    = function
+let run (_config : config) _fs clock _proc
+    (((H.Store ((module S), store) : entry H.t) as s), ctx) = function
   | Set_mode mode ->
       with_latest ~default:(fun _ -> Ok (s, ctx)) s @@ fun (_, entry) ->
       commit ~message:"mode change" clock s { entry with mode };

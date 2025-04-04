@@ -1,4 +1,10 @@
 module type S = sig
+  type config
+  (** A configuration *)
+
+  val config_term : config Cmdliner.Term.t
+  (** A cmdliner term for constructing a config *)
+
   type action
   (** An action to run *)
 
@@ -20,6 +26,7 @@ module type S = sig
       to setup history completions etc. with LNoise. *)
 
   val run :
+    config ->
     _ Eio.Path.t ->
     _ Eio.Time.clock ->
     Eio_unix.Process.mgr_ty Eio_unix.Process.mgr ->

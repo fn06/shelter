@@ -26,6 +26,7 @@
    cid
    ppx_repr
    irmin-fs
+   cmdliner
   )
  (tags
   ("shell")))

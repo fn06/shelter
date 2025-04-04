@@ -17,6 +17,7 @@ depends: [
   "cid"
   "ppx_repr"
   "irmin-fs"
+  "cmdliner"
   "odoc" {with-doc}
 ]
 build: [
