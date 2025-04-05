@@ -1,0 +1,13 @@
+(rule
+ (targets config.ml)
+ (action
+  (run ./include/discover.exe)))
+
+(library
+ (name void)
+ (public_name void)
+ (foreign_stubs
+  (language c)
+  (flags -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64)
+  (names void_action))
+ (libraries eio_posix eio.unix))

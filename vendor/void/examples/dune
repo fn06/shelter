@@ -1,0 +1,3 @@
+(executables
+ (names hey curl alpine)
+ (libraries void eio_posix))
