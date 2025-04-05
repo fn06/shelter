@@ -18,3 +18,7 @@ Sometimes you want to just restart the world.
 ```
 $ sudo zpool destroy shelter && sudo zpool create shelter /var/shelter.img && sudo rm -rf ~/.cache/shelter
 ```
+
+## Shl files
+
+You can run both the main shelter program and the passthrough mode via a series of actions in a `.shl` file.

@@ -1,4 +1,4 @@
 (library
  (name shelter)
  (public_name shelter)
- (libraries cmdliner irmin-fs.unix eio.unix eio linenoise void repr))
+ (libraries cmdliner irmin-fs.unix eio.unix eio linenoise void repr morbig))
