@@ -27,7 +27,7 @@ module type S = sig
 
   val run :
     config ->
-    _ Eio.Path.t ->
+    Eio.Fs.dir_ty Eio.Path.t ->
     _ Eio.Time.clock ->
     Eio_unix.Process.mgr_ty Eio_unix.Process.mgr ->
     entry History.t * ctx ->

@@ -18,6 +18,7 @@ module History = struct
     time : int64;
     env : string list;
     cwd : string;
+    user : int * int;
     diff : Diff.t;
   }
   [@@deriving repr]
@@ -174,7 +175,7 @@ let init fs proc s =
     (list s);
   store
 
-let run (_config : config) fs clock _proc
+let run (config : config) fs clock proc
     (((H.Store ((module S), store) : entry H.t) as s), ctx) = function
   | Set_mode mode ->
       with_latest ~default:(fun _ -> Ok (s, ctx)) s @@ fun (_, entry) ->
@@ -238,21 +239,24 @@ let run (_config : config) fs clock _proc
             History.
               {
                 mode = Void.RW;
-                build = Store.Build.Image "alpine";
+                build = Store.Build.Image config.image;
                 args = command;
                 time = 0L;
                 diff = [];
                 (* TODO: extract with fetch *)
                 env = [];
                 cwd = "/";
+                user = (0, 0);
               })
           s
         @@ fun (_, e) -> e
       in
-      let build =
+      let build, env, (uid, gid) =
         match entry.build with
-        | Store.Build.Image img -> Store.fetch ctx img
-        | Store.Build.Build cid -> cid
+        | Store.Build.Image img ->
+            let build, env, user = Store.fetch ctx img in
+            (build, env, Option.value ~default:(0, 0) user)
+        | Store.Build.Build cid -> (cid, entry.env, entry.user)
       in
       let hash_entry = { entry with build = Build build; args = command } in
       let new_cid = Store.cid (Repr.to_string History.t hash_entry) in
@@ -263,47 +267,88 @@ let run (_config : config) fs clock _proc
       try
         let new_entry, diff =
           with_rootfs @@ fun rootfs ->
-          let void =
-            Void.empty
-            |> Void.rootfs ~mode:entry.mode rootfs
-            |> Void.cwd entry.cwd
-            |> Void.exec ~env:entry.env
-                 [
-                   "/bin/ash";
-                   "-c";
-                   String.concat " " command ^ " && env > /shelter-env";
-                 ]
+          let spawn sw =
+            if config.no_runc then
+              let rootfs = Filename.concat rootfs "rootfs" in
+              let void =
+                Void.empty
+                |> Void.rootfs ~mode:entry.mode rootfs
+                |> Void.cwd entry.cwd
+                (* TODO: Support UIDs |> Void.uid 1000 *)
+                |> Void.exec ~env
+                     [
+                       config.shell;
+                       "-c";
+                       String.concat " " command ^ " && env > /tmp/shelter-env";
+                     ]
+              in
+              `Void (Void.spawn ~sw void |> Void.exit_status)
+            else
+              let config =
+                Runc.Json_config.
+                  {
+                    cwd = entry.cwd;
+                    argv =
+                      [
+                        config.shell;
+                        "-c";
+                        String.concat " " command ^ " && env > /tmp/shelter-env";
+                      ];
+                    hostname = "";
+                    network = [];
+                    user = (uid, gid);
+                    env = entry.env;
+                    entrypoint = None;
+                  }
+              in
+              `Runc (Runc.spawn ~sw fs proc config rootfs)
           in
           Switch.run @@ fun sw ->
+          let res = spawn sw in
           let start = Mtime_clock.now () in
-          let proc = Void.spawn ~sw void in
           let res =
-            Void.exit_status proc |> Eio.Promise.await |> Void.to_eio_status
+            match res with
+            | `Runc r -> Eio.Process.await r
+            | `Void v -> Void.to_eio_status (Eio.Promise.await v)
           in
           let stop = Mtime_clock.now () in
-          (* Extract env *)
-          let env_path = Eio.Path.(fs / rootfs / "shelter-env") in
-          let env = Eio.Path.(load env_path) |> String.split_on_char '\n' in
-          Eio.Path.unlink env_path;
-          let cwd =
-            List.find_map
-              (fun v ->
-                match Astring.String.cut ~sep:"=" v with
-                | Some ("PWD", dir) -> Some dir
-                | _ -> None)
-              env
-            |> Option.value ~default:hash_entry.cwd
-          in
           let span = Mtime.span start stop in
           let time = Mtime.Span.to_uint64_ns span in
           (* Add command to history regardless of exit status *)
           let _ : (unit, string) result =
             LNoise.history_add (String.concat " " command)
           in
-          if res = `Exited 0 then
+          if res = `Exited 0 then (
+            (* Extract env *)
+            let env_path =
+              Eio.Path.(fs / rootfs / "rootfs" / "tmp" / "shelter-env")
+            in
+            let env =
+              Eio.Path.(load env_path)
+              |> String.split_on_char '\n'
+              |> List.filter (fun s -> not (String.equal "" s))
+            in
+            Eio.Path.unlink env_path;
+            let cwd =
+              List.find_map
+                (fun v ->
+                  match Astring.String.cut ~sep:"=" v with
+                  | Some ("PWD", dir) -> Some dir
+                  | _ -> None)
+                env
+              |> Option.value ~default:hash_entry.cwd
+            in
             if entry.mode = RW then
-              Ok { hash_entry with build = Build new_cid; time; env; cwd }
-            else Ok { hash_entry with cwd; env }
+              Ok
+                {
+                  hash_entry with
+                  build = Build new_cid;
+                  time;
+                  env;
+                  cwd;
+                  user = (uid, gid);
+                }
+            else Ok { hash_entry with time; cwd; env; user = (uid, gid) })
           else Error (Eio.Process.Child_error res)
         in
         match new_entry with

@@ -126,24 +126,41 @@ let cid s =
   in
   Cid.v ~version:`Cidv1 ~base:`Base32 ~codec:`Raw ~hash
 
+let not_empty s = not String.(equal empty s)
+
+let get_uid_gid ~username rootfs =
+  let passwd =
+    Eio.Path.load Eio.Path.(rootfs / "etc" / "passwd")
+    |> String.split_on_char '\n'
+    |> List.map (String.split_on_char ':')
+    |> List.map (List.filter not_empty)
+  in
+  List.find_map
+    (function
+      | user :: _ :: uid :: gid :: _ when String.equal user username ->
+          Some (int_of_string uid, int_of_string gid)
+      | _ -> None)
+    passwd
+
 let fetch t image =
   let cid = cid image in
   let cids = cid |> Cid.to_string in
   let dataset = Datasets.build t.pool cids in
   let dir = Eio.Path.(t.fs / ("/" ^ (Datasets.build t.pool cids :> string))) in
-  if Zfs.exists t.zfs (dataset :> string) Zfs.Types.filesystem then cid
-  else (
-    create_and_mount t dataset;
-    let _dir : string = Fetch.get_image ~dir ~proc:t.proc image in
-    snapshot t (Datasets.snapshot dataset);
-    cid)
+  create_and_mount t dataset;
+  let _dir : string = Fetch.get_image ~dir ~proc:t.proc image in
+  snapshot t (Datasets.snapshot dataset);
+  let username = Fetch.get_user t.proc image in
+  ( cid,
+    Fetch.get_env t.proc image,
+    get_uid_gid ~username Eio.Path.(dir / "rootfs") )
 
 module Run = struct
   let with_build t cid fn =
     let ds = Datasets.build t.pool (Cid.to_string cid) in
     Fun.protect ~finally:(fun () -> unmount_dataset t ds) @@ fun () ->
     mount_dataset t ds;
-    fn ("/" ^ (ds :> string) ^ "/rootfs")
+    fn ("/" ^ (ds :> string))
 
   let with_clone t ~src new_cid fn =
     let ds = Datasets.build t.pool (Cid.to_string src) in

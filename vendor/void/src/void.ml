@@ -11,6 +11,8 @@ type void = {
   args : string list;
   env : string list;
   cwd : string;
+  uid : int;
+  (* TODO: gid *)
   rootfs : (string * mode) option;
   mounts : mount list;
 }
@@ -60,6 +62,20 @@ let pivot_root (new_root : string) (new_root_flags : Mount.Flags.t)
                (action_pivot_root, new_root, new_root_flags, tmpfs, mounts)));
     }
 
+external action_setuid : unit -> Fork_action.fork_fn
+  = "void_fork_setuid"
+
+let action_setuid = action_setuid ()
+
+let setuid (uid : int) =  Fork_action.
+    {
+      run =
+        (fun k ->
+          k
+            (Obj.repr
+               (action_setuid, uid)));
+    }
+
 external action_map_uid_gid : unit -> Fork_action.fork_fn
   = "void_fork_map_uid_gid"
 
@@ -100,7 +116,7 @@ let void_flags = List.fold_left Flags.( + ) 0 Flags.all
 
 type path = string
 
-let empty = { args = []; env = []; rootfs = None; mounts = []; cwd = "/" }
+let empty = { args = []; env = []; rootfs = None; mounts = []; cwd = "/"; uid = 0 }
 
 let actions v : Fork_action.t list =
   let root, tmpfs, root_mode =
@@ -128,10 +144,11 @@ let actions v : Fork_action.t list =
   let mounts = pivot_root root root_flags tmpfs mounts in
   let uid, gid = Unix.(getuid (), getgid ()) in
   let user_namespace = map_uid_gid ~uid ~gid in
-  [ user_namespace; mounts; Process.Fork_action.chdir v.cwd; e ]
+  [ user_namespace; mounts; setuid v.uid; Process.Fork_action.chdir v.cwd; e ]
 
 let rootfs ~mode path v = { v with rootfs = Some (path, mode) }
 let cwd cwd v = { v with cwd }
+let uid uid v = { v with uid }
 let exec ?(env=[]) args v = { v with args; env }
 
 let mount ~mode ~src ~tgt v =

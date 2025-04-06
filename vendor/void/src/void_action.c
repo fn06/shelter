@@ -228,6 +228,24 @@ void_fork_map_uid_gid (value v_unit)
   return Val_fork_fn (action_map_uid_gid);
 }
 
+static void
+action_setuid (int errors, value v_config)
+{
+  value v_uid = Field(v_config, 1);
+
+  // if (setuid(1000)) {
+  //     eio_unix_fork_error (errors, "setuid", strerror (errno));
+  //     _exit (1);
+  // }
+}
+
+// SETUID
+CAMLprim value
+void_fork_setuid (value v_unit)
+{
+  return Val_fork_fn (action_setuid);
+}
+
 // PIVOT ROOT
 //
 static int
@@ -267,10 +285,10 @@ action_pivot_root (int errors, value v_config)
       //}
 
       if (mount ("tmpfs", new_root, "tmpfs", 0, NULL) <= -1)
-	{
-	  eio_unix_fork_error (errors, "pivot_root-tmpfs", strerror (errno));
-	  _exit (1);
-	}
+		{
+		  eio_unix_fork_error (errors, "pivot_root-tmpfs", strerror (errno));
+		  _exit (1);
+		}
     }
   else
     {

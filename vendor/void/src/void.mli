@@ -51,6 +51,9 @@ val mount : mode:mode -> src:path -> tgt:path -> void -> void
 val cwd : string -> void -> void
 (** Set the current working directory *)
 
+val uid : int -> void -> void
+(** Set the UID *)
+
 val exec : ?env:string list -> string list -> void -> void
 (** Make a void configuration ready to be spawned *)
 

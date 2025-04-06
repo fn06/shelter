@@ -8,6 +8,7 @@ module History : sig
     time : int64;
     env : string list;
     cwd : string;
+    user : int * int;
     diff : Diff.t;
   }
   [@@deriving repr]
