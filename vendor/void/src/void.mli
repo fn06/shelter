@@ -47,7 +47,11 @@ val rootfs : mode:mode -> path -> void -> void
 
 val mount : mode:mode -> src:path -> tgt:path -> void -> void
 
-val exec : string list -> void -> void
+
+val cwd : string -> void -> void
+(** Set the current working directory *)
+
+val exec : ?env:string list -> string list -> void -> void
 (** Make a void configuration ready to be spawned *)
 
 val spawn : sw:Eio.Switch.t -> void -> t

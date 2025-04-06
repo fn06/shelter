@@ -9,6 +9,8 @@ type mode = R | RW
 
 type void = {
   args : string list;
+  env : string list;
+  cwd : string;
   rootfs : (string * mode) option;
   mounts : mount list;
 }
@@ -98,7 +100,7 @@ let void_flags = List.fold_left Flags.( + ) 0 Flags.all
 
 type path = string
 
-let empty = { args = []; rootfs = None; mounts = [] }
+let empty = { args = []; env = []; rootfs = None; mounts = []; cwd = "/" }
 
 let actions v : Fork_action.t list =
   let root, tmpfs, root_mode =
@@ -108,7 +110,7 @@ let actions v : Fork_action.t list =
   in
   let args = match v.args with [] -> failwith "No exec" | args -> args in
   let e =
-    Process.Fork_action.execve (List.hd args) ~env:[||]
+    Process.Fork_action.execve (List.hd args) ~env:(Array.of_list v.env) 
       ~argv:(Array.of_list args)
   in
   (* Process mount point points *)
@@ -126,10 +128,11 @@ let actions v : Fork_action.t list =
   let mounts = pivot_root root root_flags tmpfs mounts in
   let uid, gid = Unix.(getuid (), getgid ()) in
   let user_namespace = map_uid_gid ~uid ~gid in
-  [ user_namespace; mounts; e ]
+  [ user_namespace; mounts; Process.Fork_action.chdir v.cwd; e ]
 
 let rootfs ~mode path v = { v with rootfs = Some (path, mode) }
-let exec args v = { v with args }
+let cwd cwd v = { v with cwd }
+let exec ?(env=[]) args v = { v with args; env }
 
 let mount ~mode ~src ~tgt v =
   let mode = if mode = R then Mount.Flags.ms_rdonly else Mount.Flags.empty in

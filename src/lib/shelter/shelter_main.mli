@@ -6,6 +6,8 @@ module History : sig
     build : Store.Build.t;
     args : string list;
     time : int64;
+    env : string list;
+    cwd : string;
     diff : Diff.t;
   }
   [@@deriving repr]

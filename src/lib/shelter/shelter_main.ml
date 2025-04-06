@@ -16,6 +16,8 @@ module History = struct
     build : Store.Build.t;
     args : string list;
     time : int64;
+    env : string list;
+    cwd : string;
     diff : Diff.t;
   }
   [@@deriving repr]
@@ -172,7 +174,7 @@ let init fs proc s =
     (list s);
   store
 
-let run (_config : config) _fs clock _proc
+let run (_config : config) fs clock _proc
     (((H.Store ((module S), store) : entry H.t) as s), ctx) = function
   | Set_mode mode ->
       with_latest ~default:(fun _ -> Ok (s, ctx)) s @@ fun (_, entry) ->
@@ -240,6 +242,9 @@ let run (_config : config) _fs clock _proc
                 args = command;
                 time = 0L;
                 diff = [];
+                (* TODO: extract with fetch *)
+                env = [];
+                cwd = "/";
               })
           s
         @@ fun (_, e) -> e
@@ -261,7 +266,13 @@ let run (_config : config) _fs clock _proc
           let void =
             Void.empty
             |> Void.rootfs ~mode:entry.mode rootfs
-            |> Void.exec [ "/bin/ash"; "-c"; String.concat " " command ]
+            |> Void.cwd entry.cwd
+            |> Void.exec ~env:entry.env
+                 [
+                   "/bin/ash";
+                   "-c";
+                   String.concat " " command ^ " && env > /shelter-env";
+                 ]
           in
           Switch.run @@ fun sw ->
           let start = Mtime_clock.now () in
@@ -270,6 +281,19 @@ let run (_config : config) _fs clock _proc
             Void.exit_status proc |> Eio.Promise.await |> Void.to_eio_status
           in
           let stop = Mtime_clock.now () in
+          (* Extract env *)
+          let env_path = Eio.Path.(fs / rootfs / "shelter-env") in
+          let env = Eio.Path.(load env_path) |> String.split_on_char '\n' in
+          Eio.Path.unlink env_path;
+          let cwd =
+            List.find_map
+              (fun v ->
+                match Astring.String.cut ~sep:"=" v with
+                | Some ("PWD", dir) -> Some dir
+                | _ -> None)
+              env
+            |> Option.value ~default:hash_entry.cwd
+          in
           let span = Mtime.span start stop in
           let time = Mtime.Span.to_uint64_ns span in
           (* Add command to history regardless of exit status *)
@@ -278,8 +302,8 @@ let run (_config : config) _fs clock _proc
           in
           if res = `Exited 0 then
             if entry.mode = RW then
-              Ok { hash_entry with build = Build new_cid; time }
-            else Ok hash_entry
+              Ok { hash_entry with build = Build new_cid; time; env; cwd }
+            else Ok { hash_entry with cwd; env }
           else Error (Eio.Process.Child_error res)
         in
         match new_entry with
