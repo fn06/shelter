@@ -1,17 +1,20 @@
 module Store = Store
 
 module History : sig
-  type t = {
+  type post = { diff : Diff.t; time : int64 } [@@deriving repr]
+
+  type pre = {
     mode : Void.mode;
     build : Store.Build.t;
     args : string list;
-    time : int64;
     env : string list;
     cwd : string;
     user : int * int;
-    diff : Diff.t;
   }
   [@@deriving repr]
+  (** Needed for execution *)
+
+  type t = { pre : pre; post : post } [@@deriving repr]
 
   include Irmin.Contents.S with type t := t
 end

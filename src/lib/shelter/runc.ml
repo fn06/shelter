@@ -31,6 +31,15 @@ module Json_config = struct
         ("options", `List (List.map (fun x -> `String x) options));
       ]
 
+  type mount = { ty : [ `Bind ]; src : string; dst : string; readonly : bool }
+
+  let user_mounts =
+    List.map @@ fun { ty; src; dst; readonly } ->
+    assert (ty = `Bind);
+    let options = [ "bind"; "nosuid"; "nodev" ] in
+    mount ~ty:"bind" ~src dst
+      ~options:(if readonly then "ro" :: options else options)
+
   let strings xs = `List (List.map (fun x -> `String x) xs)
   let namespace x = `Assoc [ ("type", `String x) ]
 
@@ -112,11 +121,12 @@ module Json_config = struct
     network : string list;
     user : int * int;
     env : string list;
+    mounts : mount list;
     entrypoint : string option;
   }
 
-  let make { cwd; argv; hostname; network; user; env; entrypoint } ~config_dir
-      ~results_dir : Yojson.Safe.t =
+  let make { cwd; argv; hostname; network; user; env; mounts; entrypoint }
+      ~config_dir ~results_dir : Yojson.Safe.t =
     assert (entrypoint = None);
     let user =
       let uid, gid = user in
@@ -161,8 +171,14 @@ module Json_config = struct
                     `Assoc
                       [
                         ("type", `String "RLIMIT_NOFILE");
-                        ("hard", `Int 1024);
-                        ("soft", `Int 1024);
+                        ("hard", `Int 10_024);
+                        ("soft", `Int 10_024);
+                      ];
+                    `Assoc
+                      [
+                        ("type", `String "RLIMIT_MEMLOCK");
+                        ("hard", `Int 1_000_000);
+                        ("soft", `Int 1_000_000);
                       ];
                   ] );
               ("noNewPrivileges", `Bool false);
@@ -180,40 +196,42 @@ module Json_config = struct
                ~options:
                  [ (* TODO: copy to others? *) "nosuid"; "noexec"; "nodev" ]
                ~ty:"proc" ~src:"proc"
-            :: mount "/dev" ~ty:"tmpfs" ~src:"tmpfs"
-                 ~options:[ "nosuid"; "strictatime"; "mode=755"; "size=65536k" ]
-            :: mount "/dev/pts" ~ty:"devpts" ~src:"devpts"
-                 ~options:
-                   [
-                     "nosuid";
-                     "noexec";
-                     "newinstance";
-                     "ptmxmode=0666";
-                     "mode=0620";
-                     "gid=5";
-                     (* tty *)
-                   ]
-            :: mount
-                 "/sys"
-                 (* This is how Docker does it. runc's default is a bit different. *)
-                 ~ty:"sysfs" ~src:"sysfs"
-                 ~options:[ "nosuid"; "noexec"; "nodev"; "ro" ]
-            :: mount "/sys/fs/cgroup" ~ty:"cgroup" ~src:"cgroup"
-                 ~options:[ "ro"; "nosuid"; "noexec"; "nodev" ]
-            :: mount "/dev/shm" ~ty:"tmpfs" ~src:"shm"
-                 ~options:
-                   [ "nosuid"; "noexec"; "nodev"; "mode=1777"; "size=65536k" ]
-            :: mount "/dev/mqueue" ~ty:"mqueue" ~src:"mqueue"
-                 ~options:[ "nosuid"; "noexec"; "nodev" ]
-            :: mount "/etc/hosts" ~ty:"bind" ~src:(config_dir // "hosts")
-                 ~options:[ "ro"; "rbind"; "rprivate" ]
-            ::
-            (if network = [ "host" ] then
-               [
-                 mount "/etc/resolv.conf" ~ty:"bind" ~src:"/etc/resolv.conf"
-                   ~options:[ "ro"; "rbind"; "rprivate" ];
-               ]
-             else [])) );
+             :: mount "/dev" ~ty:"tmpfs" ~src:"tmpfs"
+                  ~options:
+                    [ "nosuid"; "strictatime"; "mode=755"; "size=65536k" ]
+             :: mount "/dev/pts" ~ty:"devpts" ~src:"devpts"
+                  ~options:
+                    [
+                      "nosuid";
+                      "noexec";
+                      "newinstance";
+                      "ptmxmode=0666";
+                      "mode=0620";
+                      "gid=5";
+                      (* tty *)
+                    ]
+             :: mount
+                  "/sys"
+                  (* This is how Docker does it. runc's default is a bit different. *)
+                  ~ty:"sysfs" ~src:"sysfs"
+                  ~options:[ "nosuid"; "noexec"; "nodev"; "ro" ]
+             :: mount "/sys/fs/cgroup" ~ty:"cgroup" ~src:"cgroup"
+                  ~options:[ "ro"; "nosuid"; "noexec"; "nodev" ]
+             :: mount "/dev/shm" ~ty:"tmpfs" ~src:"shm"
+                  ~options:
+                    [ "nosuid"; "noexec"; "nodev"; "mode=1777"; "size=65536k" ]
+             :: mount "/dev/mqueue" ~ty:"mqueue" ~src:"mqueue"
+                  ~options:[ "nosuid"; "noexec"; "nodev" ]
+             :: mount "/etc/hosts" ~ty:"bind" ~src:(config_dir // "hosts")
+                  ~options:[ "ro"; "rbind"; "rprivate" ]
+             ::
+             (if network = [ "host" ] then
+                [
+                  mount "/etc/resolv.conf" ~ty:"bind" ~src:"/etc/resolv.conf"
+                    ~options:[ "ro"; "rbind"; "rprivate" ];
+                ]
+              else [])
+            @ user_mounts mounts) );
         ( "linux",
           `Assoc
             [
@@ -248,9 +266,31 @@ end
 
 let next_id = ref 0
 
-let spawn ~sw fs proc config dir =
+let to_other_sink_as_well ~other
+    (Eio.Resource.T (t, handler) : Eio.Flow.sink_ty Eio.Flow.sink) =
+  let module Sink = (val Eio.Resource.get handler Eio.Flow.Pi.Sink) in
+  let copy_buf = Buffer.create 128 in
+  let copy () ~src =
+    Eio.Flow.copy src (Eio.Flow.buffer_sink copy_buf);
+    Eio.Flow.copy_string (Buffer.contents copy_buf) other;
+    Sink.copy t ~src:(Buffer.contents copy_buf |> Eio.Flow.string_source);
+    Buffer.clear copy_buf
+  in
+  let single_write () x =
+    let _ : int = Eio.Flow.single_write other x in
+    Sink.single_write t x
+  in
+  let module T = struct
+    type t = unit
+
+    let single_write = single_write
+    let copy = copy
+  end in
+  Eio.Resource.T ((), Eio.Flow.Pi.sink (module T))
+
+let spawn ~sw log env config dir =
   let tmp = Filename.temp_dir ~perms:0o700 "shelter-run-" "" in
-  let eio_tmp = Eio.Path.(fs / tmp) in
+  let eio_tmp = Eio.Path.(env#fs / tmp) in
   let json_config = Json_config.make config ~config_dir:tmp ~results_dir:dir in
   Eio.Path.save ~create:(`If_missing 0o644) (eio_tmp / "config.json")
     (Yojson.Safe.pretty_to_string json_config ^ "\n");
@@ -259,7 +299,11 @@ let spawn ~sw fs proc config dir =
   let id = string_of_int !next_id in
   incr next_id;
   let cmd = [ "runc"; "--root"; "runc"; "run"; id ] in
-  Eio.Process.spawn ~sw proc ~cwd:eio_tmp cmd
+  let stdout =
+    to_other_sink_as_well ~other:env#stdout
+      (log :> Eio.Flow.sink_ty Eio.Flow.sink)
+  in
+  Eio.Process.spawn ~stdout ~sw env#proc ~cwd:eio_tmp cmd
 
 (* 
                                  Apache License

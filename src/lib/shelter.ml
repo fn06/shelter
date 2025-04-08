@@ -5,7 +5,7 @@ module Script = Script
 module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
   module Store = Irmin_fs_unix.KV.Make (H)
 
-  let run config fs clock proc store =
+  let run config ~stdout fs clock proc store =
     let store = History.Store ((module Store), store) in
     let initial_ctx = Engine.init fs proc store in
     let rec loop store ctx exit_code =
@@ -14,7 +14,7 @@ module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
       | None -> ()
       | Some input -> (
           let action = Engine.action_of_command input in
-          match Engine.run config fs clock proc (store, ctx) action with
+          match Engine.run config ~stdout fs clock proc (store, ctx) action with
           | Error (Eio.Process.Child_error exit_code) ->
               Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
               loop store ctx exit_code
@@ -29,7 +29,7 @@ module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
     Eio.Path.load cf |> String.split_on_char '\n'
     |> List.map Engine.action_of_command
 
-  let main config fs clock proc directory command_file =
+  let main config ~stdout fs clock proc directory command_file =
     Irmin_fs.run directory @@ fun () ->
     let conf = Irmin_fs.config (Eio.Path.native_exn directory) in
     let repo = Store.Repo.v conf in
@@ -42,7 +42,9 @@ module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
         let folder (store, ctx, exit_code) action =
           if exit_code <> `Exited 0 then (store, ctx, exit_code)
           else
-            match Engine.run config fs clock proc (store, ctx) action with
+            match
+              Engine.run config ~stdout fs clock proc (store, ctx) action
+            with
             | Error (Eio.Process.Child_error exit_code) ->
                 Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
                 (store, ctx, exit_code)
@@ -59,5 +61,5 @@ module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
         | `Exited n | `Signaled n ->
             Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
             exit n)
-    | None -> run config fs clock proc store
+    | None -> run config ~stdout fs clock proc store
 end

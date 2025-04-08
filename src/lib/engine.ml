@@ -27,6 +27,7 @@ module type S = sig
 
   val run :
     config ->
+    stdout:Eio.Flow.sink_ty Eio.Flow.sink ->
     Eio.Fs.dir_ty Eio.Path.t ->
     _ Eio.Time.clock ->
     Eio_unix.Process.mgr_ty Eio_unix.Process.mgr ->

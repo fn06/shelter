@@ -30,6 +30,8 @@ module Datasets : sig
   val builds : string -> dataset
   val build : string -> string -> dataset
   val snapshot : dataset -> snapshot
+  val tools : string -> dataset
+  val tool : string -> string -> dataset
 end = struct
   type dataset = string
   type snapshot = string
@@ -38,6 +40,8 @@ end = struct
   let builds pool : dataset = pool / "builds"
   let build pool path : dataset = builds pool / path
   let snapshot ds = ds ^ "@snappy"
+  let tools pool : dataset = pool / "tools"
+  let tool pool path : dataset = tools pool / path
 end
 
 let with_dataset ?(typ = Zfs.Types.filesystem) t dataset f =
@@ -78,6 +82,7 @@ let init fs proc pool =
     }
   in
   create_and_mount t (Datasets.builds t.pool);
+  create_and_mount t (Datasets.tools t.pool);
   t
 
 let snapshot t (snap : Datasets.snapshot) =
@@ -160,6 +165,12 @@ module Run = struct
     let ds = Datasets.build t.pool (Cid.to_string cid) in
     Fun.protect ~finally:(fun () -> unmount_dataset t ds) @@ fun () ->
     mount_dataset t ds;
+    fn (`Build ("/" ^ (ds :> string)))
+
+  let with_tool t cid fn =
+    let ds = Datasets.tool t.pool (Cid.to_string cid) in
+    Fun.protect ~finally:(fun () -> unmount_dataset t ds) @@ fun () ->
+    mount_dataset t ds;
     fn ("/" ^ (ds :> string))
 
   let with_clone t ~src new_cid fn =
@@ -167,9 +178,12 @@ module Run = struct
     let tgt = Datasets.build t.pool (Cid.to_string new_cid) in
     let src_snap = Datasets.snapshot ds in
     let tgt_snap = Datasets.snapshot tgt in
-    clone t src_snap tgt;
-    let v = with_build t new_cid fn in
-    snapshot t tgt_snap;
-    let d = diff t src_snap tgt_snap in
-    (v, d)
+    if Zfs.exists t.zfs (tgt :> string) Zfs.Types.dataset then
+      (fn (`Exists ("/" ^ (tgt :> string))), diff t src_snap tgt_snap)
+    else (
+      clone t src_snap tgt;
+      let v = with_build t new_cid fn in
+      snapshot t tgt_snap;
+      let d = diff t src_snap tgt_snap in
+      (v, d))
 end

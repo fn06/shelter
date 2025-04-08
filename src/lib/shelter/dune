@@ -1,6 +1,13 @@
+; (rule
+;   (target opentrace)
+;   (action
+;     (with-stdout-to opentrace (run echo hello))))
+
 (library
  (name shelter_main)
  (public_name shelter.main)
+ (preprocessor_deps
+  (file opentrace))
  (preprocess
-  (pps ppx_repr))
+  (pps ppx_repr ppx_blob))
  (libraries shelter cid void zfs))

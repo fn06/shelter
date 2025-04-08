@@ -37,7 +37,7 @@ let init _ _
       in
       List.iter (fun v -> LNoise.history_add v |> ignore) entries
 
-let run (() : config) _fs clock proc
+let run (() : config) ~stdout:_ _fs clock proc
     ( ((Shelter.History.Store ((module S), store) : entry Shelter.History.t) as
        full_store),
       () ) (Exec command) =

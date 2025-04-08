@@ -30,7 +30,8 @@ let main =
     Eio_posix.run @@ fun env ->
     let cmd_file = Option.map (Eio.Path.( / ) env#fs) cmd_file in
     let dir = state_dir env#fs "shelter" in
-    Main.main config env#fs env#clock env#process_mgr dir cmd_file
+    let stdout = (env#stdout :> Eio.Flow.sink_ty Eio.Flow.sink) in
+    Main.main config ~stdout env#fs env#clock env#process_mgr dir cmd_file
   in
   let t = Term.(const run $ Shelter_main.config_term $ cmd_file) in
   let man =
@@ -49,7 +50,8 @@ let passthrough =
     Eio_posix.run @@ fun env ->
     let cmd_file = Option.map (Eio.Path.( / ) env#fs) cmd_file in
     let dir = state_dir env#fs "passthrough" in
-    Pass.main config env#fs env#clock env#process_mgr dir cmd_file
+    let stdout = (env#stdout :> Eio.Flow.sink_ty Eio.Flow.sink) in
+    Pass.main config ~stdout env#fs env#clock env#process_mgr dir cmd_file
   in
   let t = Term.(const run $ Shelter_passthrough.config_term $ cmd_file) in
   let info = Cmd.info "passthrough" in
