@@ -221,6 +221,154 @@ let init fs proc s =
   in
   { store; tool_dir = tools }
 
+(* Run a command *)
+let exec (config : config) ~stdout fs proc
+    ((H.Store ((module S), _) : entry H.t), (ctx : ctx)) (entry : entry) =
+  let build, env, (uid, gid) =
+    match entry.pre.build with
+    | Store.Build.Image img ->
+        let build, env, user = Store.fetch ctx.store img in
+        (build, env, Option.value ~default:(0, 0) user)
+    | Store.Build.Build cid -> (cid, entry.pre.env, entry.pre.user)
+  in
+  let command = entry.pre.args in
+  let hash_entry =
+    { entry with pre = { entry.pre with build = Build build } }
+  in
+  (* Store things under History.pre, this makes it possible to rediscover
+         the hash for something purely from the arguments needed to execute something
+         rather than needing, for example, the time it took to execute! *)
+  let new_cid = Store.cid (Repr.to_string History.pre_t hash_entry.pre) in
+  let with_rootfs fn =
+    if entry.pre.mode = R then (Store.Run.with_build ctx.store build fn, [])
+    else Store.Run.with_clone ctx.store ~src:build new_cid fn
+  in
+  with_rootfs @@ function
+  | `Exists path ->
+      (* Copy the stdout log to stdout *)
+      let () =
+        Eio.Path.(with_open_in (fs / (path :> string) / "log")) @@ fun ic ->
+        Eio.Flow.copy ic stdout
+      in
+      let c = Eio.Path.(load (fs / (path :> string) / "hash")) in
+      Ok (`Reset c)
+  | `Build rootfs ->
+      let spawn sw log =
+        if config.no_runc then
+          let rootfs = Filename.concat rootfs "rootfs" in
+          let void =
+            Void.empty
+            |> Void.rootfs ~mode:entry.pre.mode rootfs
+            |> Void.cwd entry.pre.cwd
+            (* TODO: Support UIDs |> Void.uid 1000 *)
+            |> Void.exec ~env
+                 [
+                   config.shell;
+                   "-c";
+                   String.concat " " command ^ " && env > /tmp/shelter-env";
+                 ]
+          in
+          `Void (Void.spawn ~sw void |> Void.exit_status)
+        else
+          let tool_mount : Runc.Json_config.mount =
+            {
+              ty = `Bind;
+              src = ctx.tool_dir;
+              dst = "/shelter-tools";
+              readonly = true;
+            }
+          in
+          let config =
+            Runc.Json_config.
+              {
+                cwd = entry.pre.cwd;
+                argv =
+                  [
+                    config.shell;
+                    "-c";
+                    String.concat " " command ^ " && env > /tmp/shelter-env";
+                  ];
+                hostname = "";
+                network = [ "host" ];
+                user = (uid, gid);
+                env = entry.pre.env;
+                mounts = [ tool_mount ];
+                entrypoint = None;
+              }
+          in
+          let env =
+            object
+              method fs = fs
+              method proc = proc
+              method stdout = stdout
+            end
+          in
+          `Runc (Runc.spawn ~sw log env config rootfs)
+      in
+      Switch.run @@ fun sw ->
+      let log =
+        Eio.Path.open_out ~sw ~create:(`If_missing 0o644)
+          Eio.Path.(fs / rootfs / "log")
+      in
+      let res = spawn sw log in
+      let start = Mtime_clock.now () in
+      let res =
+        match res with
+        | `Runc r -> Eio.Process.await r
+        | `Void v -> Void.to_eio_status (Eio.Promise.await v)
+      in
+      let stop = Mtime_clock.now () in
+      let span = Mtime.span start stop in
+      let time = Mtime.Span.to_uint64_ns span in
+      (* Add command to history regardless of exit status *)
+      let _ : (unit, string) result =
+        LNoise.history_add (String.concat " " command)
+      in
+      if res = `Exited 0 then (
+        (* Extract env *)
+        let env_path =
+          Eio.Path.(fs / rootfs / "rootfs" / "tmp" / "shelter-env")
+        in
+        let env =
+          Eio.Path.(load env_path)
+          |> String.split_on_char '\n'
+          |> List.filter (fun s -> not (String.equal "" s))
+        in
+        Eio.Path.unlink env_path;
+        let cwd =
+          List.find_map
+            (fun v ->
+              match Astring.String.cut ~sep:"=" v with
+              | Some ("PWD", dir) -> Some dir
+              | _ -> None)
+            env
+          |> Option.value ~default:hash_entry.pre.cwd
+        in
+        if entry.pre.mode = RW then
+          Ok
+            (`Entry
+               ( {
+                   hash_entry with
+                   History.pre =
+                     {
+                       hash_entry.pre with
+                       build = Build new_cid;
+                       env;
+                       cwd;
+                       user = (uid, gid);
+                     };
+                 },
+                 rootfs ))
+        else
+          Ok
+            (`Entry
+               ( {
+                   pre = { hash_entry.pre with cwd; env; user = (uid, gid) };
+                   post = { hash_entry.post with time };
+                 },
+                 rootfs )))
+      else Error (Eio.Process.Child_error res)
+
 let run (config : config) ~stdout fs clock proc
     (((H.Store ((module S), store) : entry H.t) as s), (ctx : ctx)) = function
   | Set_mode mode ->
@@ -304,173 +452,23 @@ let run (config : config) ~stdout fs clock proc
                   };
                 post = { diff = []; time = 0L };
               })
-          s
-        @@ fun e -> e
+          s Fun.id
       in
-      let build, env, (uid, gid) =
-        match entry.pre.build with
-        | Store.Build.Image img ->
-            let build, env, user = Store.fetch ctx.store img in
-            (build, env, Option.value ~default:(0, 0) user)
-        | Store.Build.Build cid -> (cid, entry.pre.env, entry.pre.user)
-      in
-      let hash_entry =
-        {
-          entry with
-          pre = { entry.pre with build = Build build; args = command };
-        }
-      in
-      (* Store things under History.pre, this makes it possible to rediscover
-         the hash for something purely from the arguments needed to execute something
-         rather than needing, for example, the time it took to execute! *)
-      let new_cid = Store.cid (Repr.to_string History.pre_t hash_entry.pre) in
-      let with_rootfs fn =
-        if entry.pre.mode = R then (Store.Run.with_build ctx.store build fn, [])
-        else Store.Run.with_clone ctx.store ~src:build new_cid fn
-      in
+      let entry = { entry with pre = { entry.pre with args = command } } in
       try
-        let new_entry, diff =
-          with_rootfs @@ function
-          | `Exists path ->
-              (* Copy the stdout log to stdout *)
-              let () =
-                Eio.Path.(with_open_in (fs / (path :> string) / "log"))
-                @@ fun ic -> Eio.Flow.copy ic stdout
-              in
-              let repo = S.repo store in
-              let c =
-                Eio.Path.(load (fs / (path :> string) / "hash"))
-                |> S.Hash.unsafe_of_raw_string |> S.Commit.of_hash repo
-              in
-              Ok (`Reset c)
-          | `Build rootfs ->
-              let spawn sw log =
-                if config.no_runc then
-                  let rootfs = Filename.concat rootfs "rootfs" in
-                  let void =
-                    Void.empty
-                    |> Void.rootfs ~mode:entry.pre.mode rootfs
-                    |> Void.cwd entry.pre.cwd
-                    (* TODO: Support UIDs |> Void.uid 1000 *)
-                    |> Void.exec ~env
-                         [
-                           config.shell;
-                           "-c";
-                           String.concat " " command
-                           ^ " && env > /tmp/shelter-env";
-                         ]
-                  in
-                  `Void (Void.spawn ~sw void |> Void.exit_status)
-                else
-                  let tool_mount : Runc.Json_config.mount =
-                    {
-                      ty = `Bind;
-                      src = ctx.tool_dir;
-                      dst = "/shelter-tools";
-                      readonly = true;
-                    }
-                  in
-                  let config =
-                    Runc.Json_config.
-                      {
-                        cwd = entry.pre.cwd;
-                        argv =
-                          [
-                            config.shell;
-                            "-c";
-                            String.concat " " command
-                            ^ " && env > /tmp/shelter-env";
-                          ];
-                        hostname = "";
-                        network = [ "host" ];
-                        user = (uid, gid);
-                        env = entry.pre.env;
-                        mounts = [ tool_mount ];
-                        entrypoint = None;
-                      }
-                  in
-                  let env =
-                    object
-                      method fs = fs
-                      method proc = proc
-                      method stdout = stdout
-                    end
-                  in
-                  `Runc (Runc.spawn ~sw log env config rootfs)
-              in
-              Switch.run @@ fun sw ->
-              let log =
-                Eio.Path.open_out ~sw ~create:(`If_missing 0o644)
-                  Eio.Path.(fs / rootfs / "log")
-              in
-              let res = spawn sw log in
-              let start = Mtime_clock.now () in
-              let res =
-                match res with
-                | `Runc r -> Eio.Process.await r
-                | `Void v -> Void.to_eio_status (Eio.Promise.await v)
-              in
-              let stop = Mtime_clock.now () in
-              let span = Mtime.span start stop in
-              let time = Mtime.Span.to_uint64_ns span in
-              (* Add command to history regardless of exit status *)
-              let _ : (unit, string) result =
-                LNoise.history_add (String.concat " " command)
-              in
-              if res = `Exited 0 then (
-                (* Extract env *)
-                let env_path =
-                  Eio.Path.(fs / rootfs / "rootfs" / "tmp" / "shelter-env")
-                in
-                let env =
-                  Eio.Path.(load env_path)
-                  |> String.split_on_char '\n'
-                  |> List.filter (fun s -> not (String.equal "" s))
-                in
-                Eio.Path.unlink env_path;
-                let cwd =
-                  List.find_map
-                    (fun v ->
-                      match Astring.String.cut ~sep:"=" v with
-                      | Some ("PWD", dir) -> Some dir
-                      | _ -> None)
-                    env
-                  |> Option.value ~default:hash_entry.pre.cwd
-                in
-                if entry.pre.mode = RW then
-                  Ok
-                    (`Entry
-                       ( {
-                           hash_entry with
-                           History.pre =
-                             {
-                               hash_entry.pre with
-                               build = Build new_cid;
-                               env;
-                               cwd;
-                               user = (uid, gid);
-                             };
-                         },
-                         rootfs ))
-                else
-                  Ok
-                    (`Entry
-                       ( {
-                           pre =
-                             { hash_entry.pre with cwd; env; user = (uid, gid) };
-                           post = { hash_entry.post with time };
-                         },
-                         rootfs )))
-              else Error (Eio.Process.Child_error res)
-        in
+        let new_entry, diff = exec config ~stdout fs proc (s, ctx) entry in
         match new_entry with
         | Error e -> Error e
-        | Ok (`Reset None) ->
-            Fmt.epr "Resetting to existing entry failed...\n%!";
-            Ok (s, ctx)
-        | Ok (`Reset (Some c)) ->
-            S.Head.set store c;
-            Ok (s, ctx)
+        | Ok (`Reset c) -> (
+            match
+              S.Hash.unsafe_of_raw_string c |> S.Commit.of_hash (S.repo store)
+            with
+            | None ->
+                Fmt.epr "Resetting to existing entry failed...\n%!";
+                Ok (s, ctx)
+            | Some c ->
+                S.Head.set store c;
+                Ok (s, ctx))
         | Ok (`Entry (entry, path)) ->
             (* Set diff *)
             let entry = { entry with post = { entry.post with diff } } in
