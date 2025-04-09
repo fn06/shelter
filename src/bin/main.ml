@@ -15,6 +15,12 @@ let state_dir fs type' =
   Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 path;
   path
 
+module Eventloop = struct
+  let run fn =
+    Eio_posix.run @@ fun env ->
+    Lwt_eio.with_event_loop ~clock:env#clock @@ fun _token -> fn env
+end
+
 (* Command Line *)
 open Cmdliner
 
@@ -27,7 +33,7 @@ let cmd_file =
 
 let main =
   let run config cmd_file =
-    Eio_posix.run @@ fun env ->
+    Eventloop.run @@ fun env ->
     let cmd_file = Option.map (Eio.Path.( / ) env#fs) cmd_file in
     let dir = state_dir env#fs "shelter" in
     let stdout = (env#stdout :> Eio.Flow.sink_ty Eio.Flow.sink) in
@@ -47,7 +53,7 @@ let main =
 
 let passthrough =
   let run config cmd_file =
-    Eio_posix.run @@ fun env ->
+    Eventloop.run @@ fun env ->
     let cmd_file = Option.map (Eio.Path.( / ) env#fs) cmd_file in
     let dir = state_dir env#fs "passthrough" in
     let stdout = (env#stdout :> Eio.Flow.sink_ty Eio.Flow.sink) in
@@ -59,7 +65,7 @@ let passthrough =
 
 let extract_commands =
   let run cmd_file =
-    Eio_posix.run @@ fun env ->
+    Eventloop.run @@ fun env ->
     let cmd_file = Eio.Path.( / ) env#fs (Option.get cmd_file) in
     Shelter.Script.to_commands cmd_file |> List.iter (Fmt.pr "%s\n")
   in

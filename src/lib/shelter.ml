@@ -2,8 +2,11 @@ module History = History
 module Engine = Engine
 module Script = Script
 
+let process_error e = Error (`Process e)
+let shell_error e = Error (`Shell e)
+
 module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
-  module Store = Irmin_fs_unix.KV.Make (H)
+  module Store = Irmin_git_unix.FS.KV (H)
 
   let run config ~stdout fs clock proc store =
     let store = History.Store ((module Store), store) in
@@ -15,12 +18,15 @@ module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
       | Some input -> (
           let action = Engine.action_of_command input in
           match Engine.run config ~stdout fs clock proc (store, ctx) action with
-          | Error (Eio.Process.Child_error exit_code) ->
+          | Error (`Process (Eio.Process.Child_error exit_code)) ->
               Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
               loop store ctx exit_code
-          | Error (Eio.Process.Executable_not_found m) ->
-              Fmt.epr "cshell: excutable not found %s\n%!" m;
+          | Error (`Process (Eio.Process.Executable_not_found m)) ->
+              Fmt.epr "shelter: excutable not found %s\n%!" m;
               loop store ctx (`Exited 127)
+          | Error (`Shell e) ->
+              Fmt.epr "shelter: %a\n%!" Engine.pp_error e;
+              loop store ctx (`Exited 255)
           | Ok (store, ctx) -> loop store ctx (`Exited 0))
     in
     loop store initial_ctx (`Exited 0)
@@ -45,12 +51,15 @@ module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
             match
               Engine.run config ~stdout fs clock proc (store, ctx) action
             with
-            | Error (Eio.Process.Child_error exit_code) ->
+            | Error (`Process (Eio.Process.Child_error exit_code)) ->
                 Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
                 (store, ctx, exit_code)
-            | Error (Eio.Process.Executable_not_found m) ->
-                Fmt.epr "cshell: excutable not found %s\n%!" m;
+            | Error (`Process (Eio.Process.Executable_not_found m)) ->
+                Fmt.epr "shelter: excutable not found %s\n%!" m;
                 (store, ctx, `Exited 127)
+            | Error (`Shell e) ->
+                Fmt.epr "shelter: %a\n%!" Engine.pp_error e;
+                (store, ctx, `Exited 255)
             | Ok (store, ctx) -> (store, ctx, `Exited 0)
         in
         let _store, _ctx, exit_code =

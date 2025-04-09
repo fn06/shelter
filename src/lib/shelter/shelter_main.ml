@@ -2,6 +2,10 @@ open Eio
 module Store = Store
 module H = Shelter.History
 
+type error = string
+
+let pp_error = Fmt.string
+
 module History = struct
   type mode = Void.mode
 
@@ -221,7 +225,10 @@ let init fs proc s =
   in
   { store; tool_dir = tools }
 
-(* Run a command *)
+(* Run a command:
+  
+   - TODO: pretty confusing that we `entry` to build from and also as the
+     thing we are building (e.g. the build field and the args field... *)
 let exec (config : config) ~stdout fs proc
     ((H.Store ((module S), _) : entry H.t), (ctx : ctx)) (entry : entry) =
   let build, env, (uid, gid) =
@@ -236,9 +243,13 @@ let exec (config : config) ~stdout fs proc
     { entry with pre = { entry.pre with build = Build build } }
   in
   (* Store things under History.pre, this makes it possible to rediscover
-         the hash for something purely from the arguments needed to execute something
-         rather than needing, for example, the time it took to execute! *)
-  let new_cid = Store.cid (Repr.to_string History.pre_t hash_entry.pre) in
+     the hash for something purely from the arguments needed to execute something
+     rather than needing, for example, the time it took to execute!
+
+     Also, combine it with previous build step. *)
+  let new_cid =
+    Store.cid (Cid.to_string build ^ Repr.to_string History.pre_t hash_entry.pre)
+  in
   let with_rootfs fn =
     if entry.pre.mode = R then (Store.Run.with_build ctx.store build fn, [])
     else Store.Run.with_clone ctx.store ~src:build new_cid fn
@@ -255,6 +266,7 @@ let exec (config : config) ~stdout fs proc
   | `Build rootfs ->
       let spawn sw log =
         if config.no_runc then
+          (* Experiment Void Process *)
           let rootfs = Filename.concat rootfs "rootfs" in
           let void =
             Void.empty
@@ -367,7 +379,91 @@ let exec (config : config) ~stdout fs proc
                    post = { hash_entry.post with time };
                  },
                  rootfs )))
-      else Error (Eio.Process.Child_error res)
+      else Shelter.process_error (Eio.Process.Child_error res)
+
+let complete_exec ((H.Store ((module S), store) as s : entry H.t), ctx) clock fs
+    new_entry diff =
+  match new_entry with
+  | Error e -> Error e
+  | Ok (`Reset c) -> (
+      match
+        S.Hash.unsafe_of_raw_string c |> S.Commit.of_hash (S.repo store)
+      with
+      | None ->
+          Fmt.epr "Resetting to existing entry failed...\n%!";
+          Ok (s, ctx)
+      | Some c ->
+          S.Head.set store c;
+          Ok (s, ctx))
+  | Ok (`Entry (entry, path)) ->
+      (* Set diff *)
+      let entry = History.{ entry with post = { entry.post with diff } } in
+      (* Commit if RW *)
+      if entry.pre.mode = RW then (
+        commit
+          ~message:("exec " ^ String.concat " " entry.pre.args)
+          clock s entry;
+        (* Save the commit hash for easy restoring later *)
+        let hash = S.Head.get store |> S.Commit.hash |> S.Hash.to_raw_string in
+        Eio.Path.save ~create:(`If_missing 0o644)
+          Eio.Path.(fs / path / "hash")
+          hash);
+      Ok (s, ctx)
+
+let replay config (H.Store ((module S), s) as store : entry H.t) ctx fs clock
+    proc stdout existing_branch =
+  let seshes = sessions store in
+  if not (List.exists (String.equal existing_branch) seshes) then (
+    Fmt.epr "%s does not exist!" existing_branch;
+    Ok (store, ctx))
+  else
+    let repo = S.repo s in
+    let onto = S.of_branch repo existing_branch in
+    match S.lcas ~n:1 s onto with
+    | Error lcas_error ->
+        Fmt.epr "Replay LCAS: %a" (Repr.pp S.lca_error_t) lcas_error;
+        Ok (store, ctx)
+    | Ok [ lcas ] -> (
+        let all_commits = history store in
+        let lcas_hash = S.Commit.hash lcas |> S.Hash.to_raw_string in
+        let rec collect = function
+          | [] -> []
+          | (x, _) :: _ when String.equal lcas_hash x -> []
+          | v :: vs -> v :: collect vs
+        in
+        let commits_to_apply = collect all_commits in
+        match commits_to_apply with
+        | [] -> Shelter.shell_error ""
+        | (h, first) :: rest ->
+            let _, last_other =
+              history (H.Store ((module S), onto)) |> List.hd
+            in
+            let new_first =
+              {
+                first with
+                pre = { first.pre with build = last_other.pre.build };
+              }
+            in
+            let commits_to_apply = (h, new_first) :: rest in
+            (* Now we reset our head to point to the other store's head
+           and replay our commits onto it *)
+            let other_head = S.Head.get onto in
+            S.Head.set s other_head;
+            let res =
+              List.fold_left
+                (fun last (_, (entry : entry)) ->
+                  match last with
+                  | Error _ as e -> e
+                  | Ok (new_store, new_ctx) ->
+                      let new_entry, diff =
+                        exec config ~stdout fs proc (new_store, new_ctx) entry
+                      in
+                      complete_exec (new_store, new_ctx) clock fs new_entry diff)
+                (Ok (H.Store ((module S), s), ctx))
+                commits_to_apply
+            in
+            res)
+    | _ -> assert false (* Because n = 1 *)
 
 let run (config : config) ~stdout fs clock proc
     (((H.Store ((module S), store) : entry H.t) as s), (ctx : ctx)) = function
@@ -391,9 +487,8 @@ let run (config : config) ~stdout fs clock proc
               Ok (s, ctx)
           | Ok store -> Ok (store, ctx)))
   | Unknown args ->
-      Fmt.epr "%a: %s\n%!" (text `Red) "Unknown Shelter Action"
-        (String.concat " " args);
-      Ok (s, ctx)
+      Fmt.epr "%a" (text `Red) "Unknown Shelter Action\n";
+      Shelter.shell_error (String.concat " " args)
   | Info `Current ->
       let sessions = sessions s in
       let sesh = Option.value ~default:"main" (snd (which_branch s)) in
@@ -430,7 +525,7 @@ let run (config : config) ~stdout fs clock proc
       Ok (s, ctx)
   | Exec [] -> Ok (s, ctx)
   | Undo -> Ok (reset_hard s, ctx)
-  | Replay _ -> Ok (s, ctx)
+  | Replay branch -> replay config s ctx fs clock proc stdout branch
   | Info `History ->
       display_history s;
       Ok (s, ctx)
@@ -457,32 +552,5 @@ let run (config : config) ~stdout fs clock proc
       let entry = { entry with pre = { entry.pre with args = command } } in
       try
         let new_entry, diff = exec config ~stdout fs proc (s, ctx) entry in
-        match new_entry with
-        | Error e -> Error e
-        | Ok (`Reset c) -> (
-            match
-              S.Hash.unsafe_of_raw_string c |> S.Commit.of_hash (S.repo store)
-            with
-            | None ->
-                Fmt.epr "Resetting to existing entry failed...\n%!";
-                Ok (s, ctx)
-            | Some c ->
-                S.Head.set store c;
-                Ok (s, ctx))
-        | Ok (`Entry (entry, path)) ->
-            (* Set diff *)
-            let entry = { entry with post = { entry.post with diff } } in
-            (* Commit if RW *)
-            if entry.pre.mode = RW then (
-              commit
-                ~message:("exec " ^ String.concat " " command)
-                clock s entry;
-              (* Save the commit hash for easy restoring later *)
-              let hash =
-                S.Head.get store |> S.Commit.hash |> S.Hash.to_raw_string
-              in
-              Eio.Path.save ~create:(`If_missing 0o644)
-                Eio.Path.(fs / path / "hash")
-                hash);
-            Ok (s, ctx)
-      with Eio.Exn.Io (Eio.Process.E e, _) -> Error e)
+        complete_exec (s, ctx) clock fs new_entry diff
+      with Eio.Exn.Io (Eio.Process.E e, _) -> Shelter.process_error e)

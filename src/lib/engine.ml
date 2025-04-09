@@ -17,6 +17,11 @@ module type S = sig
   (** A context that is not persisted, but is passed through each loop of the
       shell *)
 
+  type error
+  (** Shell specific errors *)
+
+  val pp_error : error Fmt.t
+
   val init :
     _ Eio.Path.t ->
     Eio_unix.Process.mgr_ty Eio_unix.Process.mgr ->
@@ -33,7 +38,9 @@ module type S = sig
     Eio_unix.Process.mgr_ty Eio_unix.Process.mgr ->
     entry History.t * ctx ->
     action ->
-    (entry History.t * ctx, Eio.Process.error) result
+    ( entry History.t * ctx,
+      [ `Process of Eio.Process.error | `Shell of error ] )
+    result
   (** [run history action] runs the action in [history]. Return a new [history]
       that can be persisted *)
 

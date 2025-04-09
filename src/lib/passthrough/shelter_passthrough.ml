@@ -1,5 +1,9 @@
 open Eio
 
+type error = string
+
+let pp_error = Fmt.string
+
 type config = unit
 
 let config_term = Cmdliner.Term.const ()
@@ -56,5 +60,5 @@ let run (() : config) ~stdout:_ _fs clock proc
       S.set_exn ~info store (key ()) command;
       let _ : (unit, string) result = LNoise.history_add command in
       Ok (full_store, ()))
-    else Error (Eio.Process.Child_error res)
-  with Eio.Exn.Io (Eio.Process.E e, _) -> Error e
+    else Shelter.process_error (Eio.Process.Child_error res)
+  with Eio.Exn.Io (Eio.Process.E e, _) -> Shelter.process_error e
