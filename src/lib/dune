@@ -1,13 +1,4 @@
 (library
  (name shelter)
  (public_name shelter)
- (libraries
-  cmdliner
-  irmin-fs.unix
-  irmin-git.unix
-  eio.unix
-  eio
-  linenoise
-  void
-  repr
-  morbig))
+ (libraries cmdliner irmin-git.unix eio.unix eio linenoise void repr morbig))

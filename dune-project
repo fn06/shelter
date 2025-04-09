@@ -25,7 +25,9 @@
    zfs
    cid
    ppx_repr
-   irmin-fs
+   irmin-git
+   morbig
+   ppx_blob
    cmdliner
   )
  (tags

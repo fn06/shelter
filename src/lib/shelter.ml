@@ -36,8 +36,7 @@ module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
     |> List.map Engine.action_of_command
 
   let main config ~stdout fs clock proc directory command_file =
-    Irmin_fs.run directory @@ fun () ->
-    let conf = Irmin_fs.config (Eio.Path.native_exn directory) in
+    let conf = Irmin_git.config (Eio.Path.native_exn directory) in
     let repo = Store.Repo.v conf in
     let store = Store.main repo in
     match command_file with
