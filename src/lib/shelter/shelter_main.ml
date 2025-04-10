@@ -252,7 +252,11 @@ let exec (config : config) ~stdout fs proc
   in
   let with_rootfs fn =
     if entry.pre.mode = R then (Store.Run.with_build ctx.store build fn, [])
-    else Store.Run.with_clone ctx.store ~src:build new_cid fn
+    else
+      let diff_path =
+        Eio.Path.(fs / Filename.temp_dir "shelter-diff-" "" / "diff")
+      in
+      Store.Run.with_clone ctx.store ~src:build new_cid diff_path fn
   in
   with_rootfs @@ function
   | `Exists path ->
@@ -300,7 +304,7 @@ let exec (config : config) ~stdout fs proc
                     "-c";
                     String.concat " " command ^ " && env > /tmp/shelter-env";
                   ];
-                hostname = "";
+                hostname = "builder";
                 network = [ "host" ];
                 user = (uid, gid);
                 env = entry.pre.env;
@@ -317,17 +321,17 @@ let exec (config : config) ~stdout fs proc
           in
           `Runc (Runc.spawn ~sw log env config rootfs)
       in
-      Switch.run @@ fun sw ->
-      let log =
-        Eio.Path.open_out ~sw ~create:(`If_missing 0o644)
-          Eio.Path.(fs / rootfs / "log")
-      in
-      let res = spawn sw log in
-      let start = Mtime_clock.now () in
-      let res =
+      let start, res =
+        Switch.run @@ fun sw ->
+        let log =
+          Eio.Path.open_out ~sw ~create:(`If_missing 0o644)
+            Eio.Path.(fs / rootfs / "log")
+        in
+        let res = spawn sw log in
+        let start = Mtime_clock.now () in
         match res with
-        | `Runc r -> Eio.Process.await r
-        | `Void v -> Void.to_eio_status (Eio.Promise.await v)
+        | `Runc r -> (start, Eio.Process.await r)
+        | `Void v -> (start, Void.to_eio_status (Eio.Promise.await v))
       in
       let stop = Mtime_clock.now () in
       let span = Mtime.span start stop in

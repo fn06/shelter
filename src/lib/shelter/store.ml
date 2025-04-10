@@ -94,8 +94,8 @@ let clone t (snap : Datasets.snapshot) (tgt : Datasets.dataset) =
   Zfs.clone src (tgt :> string)
 
 let read_all fd =
-  let buf = Buffer.create 128 in
-  let bytes = Bytes.create 4096 in
+  let buf = Buffer.create 10_000 in
+  let bytes = Bytes.create 10_000 in
   let rec loop () =
     match Unix.read fd bytes 0 4096 with
     | 0 | (exception End_of_file) -> Buffer.contents buf
@@ -105,23 +105,24 @@ let read_all fd =
   in
   loop ()
 
-let diff t (data : Datasets.snapshot) (snap : Datasets.snapshot) =
+let diff t (data : Datasets.snapshot) (snap : Datasets.snapshot) output =
   let data_fs =
     String.sub (data :> string) 0 (String.index (data :> string) '@')
   in
   let zh = Zfs.open_ t.zfs data_fs Zfs.Types.filesystem in
-  let diff =
-    let r, w = Unix.pipe ~cloexec:false () in
+  let () =
     try
-      Zfs.show_diff zh ~from_:(data :> string) ~to_:(snap :> string) w;
-      let f = read_all r in
-      Unix.close r;
-      f
-    with e ->
-      Unix.close r;
-      raise e
+      Eio.Path.with_open_out ~create:(`If_missing 0o644) output
+      @@ fun flow_fd ->
+      let eio_fd = Eio_unix.Resource.fd_opt flow_fd in
+      Eio_unix.Fd.use_exn_opt "zfs-diff" eio_fd @@ function
+      | None -> Fmt.failwith "Output needs to have an FD"
+      | Some fd ->
+          Zfs.show_diff zh ~from_:(data :> string) ~to_:(snap :> string) fd
+    with Unix.Unix_error (Unix.EBADF, _, _) -> ()
   in
   Zfs.close zh;
+  let diff = Eio.Path.load output in
   Diff.of_zfs diff
 
 let cid s =
@@ -173,17 +174,17 @@ module Run = struct
     mount_dataset t ds;
     fn ("/" ^ (ds :> string))
 
-  let with_clone t ~src new_cid fn =
+  let with_clone t ~src new_cid output fn =
     let ds = Datasets.build t.pool (Cid.to_string src) in
     let tgt = Datasets.build t.pool (Cid.to_string new_cid) in
     let src_snap = Datasets.snapshot ds in
     let tgt_snap = Datasets.snapshot tgt in
     if Zfs.exists t.zfs (tgt :> string) Zfs.Types.dataset then
-      (fn (`Exists ("/" ^ (tgt :> string))), diff t src_snap tgt_snap)
+      (fn (`Exists ("/" ^ (tgt :> string))), diff t src_snap tgt_snap output)
     else (
       clone t src_snap tgt;
       let v = with_build t new_cid fn in
       snapshot t tgt_snap;
-      let d = diff t src_snap tgt_snap in
+      let d = diff t src_snap tgt_snap output in
       (v, d))
 end

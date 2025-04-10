@@ -137,6 +137,5 @@ let show_diff ?to_ handle ~from_ (fd : Unix.file_descr) =
   (* TODO: Other Diff Flags https://github.com/openzfs/zfs/blob/5b0c27cd14bbc07d50304c97735cc105d0258673/include/libzfs.h#L917? *)
   let res = C.Functions.diff handle (Obj.magic fd : int) from_ to_ 1 in
   if res = 0 then () else begin
-    Format.printf "Diff got %i\n%!" res;
     invalid_arg "show_diff"
   end

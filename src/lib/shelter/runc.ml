@@ -303,7 +303,7 @@ let spawn ~sw log env config dir =
     to_other_sink_as_well ~other:env#stdout
       (log :> Eio.Flow.sink_ty Eio.Flow.sink)
   in
-  Eio.Process.spawn ~stdout ~sw env#proc ~cwd:eio_tmp cmd
+  Eio.Process.spawn ~sw ~stdout env#proc ~cwd:eio_tmp cmd
 
 (* 
                                  Apache License
