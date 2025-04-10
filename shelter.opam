@@ -10,9 +10,9 @@ homepage: "https://github.com/username/reponame"
 bug-reports: "https://github.com/username/reponame/issues"
 depends: [
   "dune" {>= "3.17"}
-  "ocaml"
+  "ocaml" {< "5.3.0~~"}
+  "ctypes" {< "0.23.0"}
   "eio_posix"
-  "void"
   "zfs"
   "cid"
   "ppx_repr"

@@ -20,11 +20,14 @@
 #include <string.h>
 
 
+#define CAML_INTERNALS
 #include <caml/mlvalues.h>
 #include <caml/unixsupport.h>
 #include <caml/memory.h>
 #include <caml/custom.h>
+#include <caml/signals.h>
 #include <caml/fail.h>
+#undef CAML_INTERNALS
 
 // From Eio
 #include <include/fork_action.h>
