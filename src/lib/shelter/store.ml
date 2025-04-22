@@ -94,6 +94,9 @@ let snapshot t (snap : Datasets.snapshot) =
   let exists = Zfs.exists t.zfs (snap :> string) Zfs.Types.snapshot in
   if not exists then Zfs.snapshot t.zfs (snap :> string) true
 
+let destroy t (d : Datasets.dataset) =
+  with_dataset t (d :> string) @@ fun ds -> Zfs.destroy ds false
+
 let clone t (snap : Datasets.snapshot) (tgt : Datasets.dataset) =
   with_dataset ~typ:Zfs.Types.snapshot t (snap :> string) @@ fun src ->
   Zfs.clone src (tgt :> string)
@@ -137,14 +140,19 @@ let fetch t image =
   let cid = cid image in
   let cids = cid |> Cid.to_string in
   let dataset = Datasets.build t.pool cids in
-  let dir = Eio.Path.(t.fs / ("/" ^ (Datasets.build t.pool cids :> string))) in
-  create_and_mount t dataset;
-  let _dir : string = Fetch.get_image ~dir ~proc:t.proc image in
-  snapshot t (Datasets.snapshot dataset);
   let username = Fetch.get_user t.proc image in
-  ( cid,
-    Fetch.get_env t.proc image,
-    get_uid_gid ~username Eio.Path.(dir / "rootfs") )
+  let dir = Eio.Path.(t.fs / ("/" ^ (Datasets.build t.pool cids :> string))) in
+  if Zfs.exists t.zfs (dataset :> string) Zfs.Types.dataset then
+    ( cid,
+      Fetch.get_env t.proc image,
+      get_uid_gid ~username Eio.Path.(dir / "rootfs") )
+  else (
+    create_and_mount t dataset;
+    let _dir : string = Fetch.get_image ~dir ~proc:t.proc image in
+    snapshot t (Datasets.snapshot dataset);
+    ( cid,
+      Fetch.get_env t.proc image,
+      get_uid_gid ~username Eio.Path.(dir / "rootfs") ))
 
 module Run = struct
   let with_build t cid fn =
@@ -193,8 +201,12 @@ module Run = struct
       (fn (`Exists ("/" ^ (tgt :> string))), diff t src_snap tgt_snap output)
     else (
       clone t src_snap tgt;
-      let v = with_build t new_cid fn in
-      snapshot t tgt_snap;
-      let d = diff t src_snap tgt_snap output in
-      (v, d))
+      match with_build t new_cid fn with
+      | Error _ as v ->
+          destroy t tgt;
+          (v, [])
+      | Ok _ as v ->
+          snapshot t tgt_snap;
+          let d = diff t src_snap tgt_snap output in
+          (v, d))
 end

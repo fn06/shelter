@@ -94,6 +94,10 @@ let create ?(props = []) handle path (type_ : Types.t) =
   let i = C.Functions.create handle path type_ (Nvlist.v props) in
   if i != 0 then failwith "Failed to create" else ()
 
+let destroy handle recurse =
+  let i = C.Functions.destroy handle recurse in
+  if i != 0 then invalid_arg "destroy" else ()
+
 let open_ handle path (type_ : Types.t) = C.Functions.open_ handle path type_
 let close : t -> unit = C.Functions.close
 let get_type : t -> Types.t = C.Functions.get_type

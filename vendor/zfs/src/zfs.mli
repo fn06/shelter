@@ -75,6 +75,9 @@ val open_ : Handle.t -> string -> Types.t -> t
 val close : t -> unit
 (** Close a dataset *)
 
+val destroy : t -> bool -> unit
+(** Destroy a dataset *)
+
 val exists : Handle.t -> string -> Types.t -> bool
 (** Check if a dataset of a specific type exists *)
 

@@ -1,6 +1,7 @@
 module Store = Store
 
 module History : sig
+  type mode = Void.mode
   type post = { diff : Diff.t; time : int64 } [@@deriving repr]
 
   type pre = {
@@ -19,4 +20,22 @@ module History : sig
   include Irmin.Contents.S with type t := t
 end
 
-include Shelter.Engine.S with type entry = History.t
+type action =
+  (* Change modes *)
+  | Set_mode of History.mode
+  (* Fork a new branch from an existing one,
+     or switch to a branch if it exists *)
+  | Set_session of string
+  (* Run a command *)
+  | Exec of string list
+  (* Undo the last command *)
+  | Undo
+  (* Replay the current branch onto another *)
+  | Replay of string
+  (* Display info *)
+  | Info of [ `Current | `History ]
+  (* Error state *)
+  | Unknown of string list
+[@@deriving repr]
+
+include Shelter.Engine.S with type entry = History.t and type action := action
