@@ -155,7 +155,6 @@ module Run = struct
 
   let with_tool t cid fn =
     let ds = Datasets.tool t.pool (Cid.to_string cid) in
-    Fun.protect ~finally:(fun () -> unmount_dataset t ds) @@ fun () ->
     mount_dataset t ds;
     fn ("/" ^ (ds :> string))
 

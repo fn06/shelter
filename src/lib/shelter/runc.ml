@@ -71,12 +71,15 @@ module Json_config = struct
       (* Use chroot. *)
       "CAP_KILL";
       (* Bypass permission checks for sending signals. *)
-      "CAP_AUDIT_WRITE"
+      "CAP_AUDIT_WRITE";
       (* Write records to kernel auditing log. *)
+      "CAP_BPF";
+      "CAP_PERFMON";
+      (* BPF operations *)
       (* Allowed by Docker, but disabled here (because we use host networking):
     "CAP_NET_RAW";              (* Use RAW and PACKET sockets / bind to any address *)
     "CAP_NET_BIND_SERVICE";     (* Bind a socket to Internet domain privileged ports. *)
-    *);
+    *)
     ]
 
   let seccomp_syscalls ~fast_sync =
@@ -216,6 +219,8 @@ module Json_config = struct
                   ~ty:"sysfs" ~src:"sysfs"
                   ~options:[ "nosuid"; "noexec"; "nodev"; "ro" ]
              :: mount "/sys/fs/cgroup" ~ty:"cgroup" ~src:"cgroup"
+                  ~options:[ "ro"; "nosuid"; "noexec"; "nodev" ]
+             :: mount "/sys/kernel/debug" ~ty:"debugfs" ~src:"debug"
                   ~options:[ "ro"; "nosuid"; "noexec"; "nodev" ]
              :: mount "/dev/shm" ~ty:"tmpfs" ~src:"shm"
                   ~options:
