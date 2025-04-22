@@ -298,12 +298,12 @@ let spawn ~sw log env config dir =
     "127.0.0.1 localhost builder";
   let id = string_of_int !next_id in
   incr next_id;
-  let cmd = [ "runc"; "--root"; "runc"; "run"; id ] in
+  let cmd = [ "runc"; "run"; id ] in
   let stdout =
     to_other_sink_as_well ~other:env#stdout
       (log :> Eio.Flow.sink_ty Eio.Flow.sink)
   in
-  Eio.Process.spawn ~sw ~stdout env#proc ~cwd:eio_tmp cmd
+  Eio.Process.spawn ~sw ~stdout ~stderr:env#stdout env#proc ~cwd:eio_tmp cmd
 
 (* 
                                  Apache License

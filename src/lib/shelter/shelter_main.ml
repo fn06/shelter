@@ -324,7 +324,7 @@ let exec (config : config) ~stdout fs proc
       let start, res =
         Switch.run @@ fun sw ->
         let log =
-          Eio.Path.open_out ~sw ~create:(`If_missing 0o644)
+          Eio.Path.open_out ~sw ~create:(`Or_truncate 0o644)
             Eio.Path.(fs / rootfs / "log")
         in
         let res = spawn sw log in

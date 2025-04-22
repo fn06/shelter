@@ -30,7 +30,7 @@ let get_env proc image =
 let get_image ~dir ~proc image =
   let container_id =
     Eio.Process.parse_out proc Eio.Buf_read.take_all
-      [ "docker"; "run"; "-d"; image ]
+      [ "docker"; "create"; "--"; image ]
     |> String.trim
   in
   let tar = replace_slash image ^ ".tar.gz" in

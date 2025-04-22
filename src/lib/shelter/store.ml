@@ -55,12 +55,17 @@ let mount_dataset ?(typ = Zfs.Types.dataset) t (dataset : Datasets.dataset) =
   | Some _ -> ()
   | None -> with_dataset ~typ t (dataset :> string) @@ fun d -> Zfs.mount d
 
+let mount_snapshot ?(typ = Zfs.Types.snapshot) t (dataset : Datasets.snapshot) =
+  match Zfs.is_mounted t.zfs (dataset :> string) with
+  | Some _ -> ()
+  | None -> with_dataset ~typ t (dataset :> string) @@ fun d -> Zfs.mount d
+
 let unmount_dataset t (dataset : Datasets.dataset) =
   match Zfs.is_mounted t.zfs (dataset :> string) with
   | None -> ()
   | Some _ ->
       with_dataset t (dataset :> string) @@ fun d ->
-      let _todo () = Zfs.unmount d in
+      let () = Zfs.unmount d in
       ()
 
 let create_dataset t (dataset : Datasets.dataset) =
@@ -104,26 +109,6 @@ let read_all fd =
         loop ()
   in
   loop ()
-
-let diff t (data : Datasets.snapshot) (snap : Datasets.snapshot) output =
-  let data_fs =
-    String.sub (data :> string) 0 (String.index (data :> string) '@')
-  in
-  let zh = Zfs.open_ t.zfs data_fs Zfs.Types.filesystem in
-  let () =
-    try
-      Eio.Path.with_open_out ~create:(`If_missing 0o644) output
-      @@ fun flow_fd ->
-      let eio_fd = Eio_unix.Resource.fd_opt flow_fd in
-      Eio_unix.Fd.use_exn_opt "zfs-diff" eio_fd @@ function
-      | None -> Fmt.failwith "Output needs to have an FD"
-      | Some fd ->
-          Zfs.show_diff zh ~from_:(data :> string) ~to_:(snap :> string) fd
-    with Unix.Unix_error (Unix.EBADF, _, _) -> ()
-  in
-  Zfs.close zh;
-  let diff = Eio.Path.load output in
-  Diff.of_zfs diff
 
 let cid s =
   let hash =
@@ -173,6 +158,32 @@ module Run = struct
     Fun.protect ~finally:(fun () -> unmount_dataset t ds) @@ fun () ->
     mount_dataset t ds;
     fn ("/" ^ (ds :> string))
+
+  let diff t (data : Datasets.snapshot) (snap : Datasets.snapshot) output =
+    let data_fs =
+      String.sub (data :> string) 0 (String.index (data :> string) '@')
+    in
+    let snap_fs =
+      String.sub (snap :> string) 0 (String.index (snap :> string) '@')
+    in
+    if Option.is_none (Zfs.is_mounted t.zfs data_fs) then
+      with_dataset t data_fs Zfs.mount;
+    if Option.is_none (Zfs.is_mounted t.zfs snap_fs) then
+      with_dataset t snap_fs Zfs.mount;
+    with_dataset ~typ:Zfs.Types.filesystem t data_fs @@ fun zh ->
+    let () =
+      try
+        Eio.Path.with_open_out ~create:(`If_missing 0o644) output
+        @@ fun flow_fd ->
+        let eio_fd = Eio_unix.Resource.fd_opt flow_fd in
+        Eio_unix.Fd.use_exn_opt "zfs-diff" eio_fd @@ function
+        | None -> Fmt.failwith "Output needs to have an FD"
+        | Some fd ->
+            Zfs.show_diff zh ~from_:(data :> string) ~to_:(snap :> string) fd
+      with Unix.Unix_error (Unix.EBADF, _, _) -> ()
+    in
+    let diff = Eio.Path.load output in
+    Diff.of_zfs diff
 
   let with_clone t ~src new_cid output fn =
     let ds = Datasets.build t.pool (Cid.to_string src) in

@@ -42,11 +42,11 @@ module Functions (F : Ctypes.FOREIGN) = struct
       (Types.libzfs_handle_t @-> string @-> int @-> returning Types.zfs_handle_t)
 
   let mount =
-    foreign "zfs_mount" (Types.zfs_handle_t @-> string @-> int @-> returning int)
+    foreign "zfs_mount" (Types.zfs_handle_t @-> string_opt @-> int @-> returning int)
 
   let unmount =
     foreign "zfs_unmount"
-      (Types.zfs_handle_t @-> string @-> int @-> returning int)
+      (Types.zfs_handle_t @-> string_opt @-> int @-> returning int)
 
   let close = foreign "zfs_close" (Types.zfs_handle_t @-> returning void)
   let get_type = foreign "zfs_get_type" (Types.zfs_handle_t @-> returning int)

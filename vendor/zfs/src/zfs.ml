@@ -116,21 +116,11 @@ let is_mounted handle path =
 let null_string = Ctypes.(coerce (ptr void) (ptr char) null)
 
 let mount ?mount_opts ?(mount_flags = 0) dataset =
-  let opts =
-    Option.value
-      ~default:(Ctypes.string_from_ptr null_string ~length:0)
-      mount_opts
-  in
-  let res = C.Functions.mount dataset opts mount_flags in
+  let res = C.Functions.mount dataset mount_opts mount_flags in
   if res <> 0 then invalid_arg "mounting dataset"
 
 let unmount ?mount_opts ?(mount_flags = 0) dataset =
-  let opts =
-    Option.value
-      ~default:(Ctypes.string_from_ptr null_string ~length:0)
-      mount_opts
-  in
-  let res = C.Functions.unmount dataset opts mount_flags in
+  let res = C.Functions.unmount dataset mount_opts mount_flags in
   if res <> 0 then invalid_arg "unmounting dataset"
 
 let show_diff ?to_ handle ~from_ (fd : Unix.file_descr) =
