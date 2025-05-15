@@ -13,13 +13,19 @@ module type Selective = sig
   val select : ('a, 'b) Either.t t -> ('a -> 'b) t -> 'b t
 end
 
-
 module T (A : Applicative) = struct
-
   let do_thing (a : _ A.t) (v : _ A.t) =
-    let v1 = A.mbind (fun i -> if Random.int i < 5 then A.mbind (fun v -> A.return @@ v ^ "hello") v else A.return "world") a in
-    let v2 = A.fmap (fun i -> if Random.int i < 5 then "hello" else "world") a in
-    v1, v2
+    let v1 =
+      A.mbind
+        (fun i ->
+          if Random.int i < 5 then A.mbind (fun v -> A.return @@ v ^ "hello") v
+          else A.return "world")
+        a
+    in
+    let v2 =
+      A.fmap (fun i -> if Random.int i < 5 then "hello" else "world") a
+    in
+    (v1, v2)
 end
 
 module Make (S : Selective) = struct
@@ -84,7 +90,7 @@ module Shl (S : Selective) = struct
     | Singleton v -> [ v ]
     | Cons (x, xs) -> x :: to_list xs
 
-  let stdout _ = "" 
+  let stdout _ = ""
 
   let build steps =
     Select.apply

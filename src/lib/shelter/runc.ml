@@ -151,7 +151,7 @@ module Json_config = struct
         ( "process",
           `Assoc
             [
-              ("terminal", `Bool false);
+              ("terminal", `Bool true);
               ("user", user);
               ("args", strings argv);
               ("env", strings env);
@@ -274,12 +274,18 @@ let next_id = ref 0
 let to_other_sink_as_well ~other
     (Eio.Resource.T (t, handler) : Eio.Flow.sink_ty Eio.Flow.sink) =
   let module Sink = (val Eio.Resource.get handler Eio.Flow.Pi.Sink) in
-  let copy_buf = Buffer.create 128 in
+  let buf = Cstruct.create 4096 in
   let copy () ~src =
-    Eio.Flow.copy src (Eio.Flow.buffer_sink copy_buf);
-    Eio.Flow.copy_string (Buffer.contents copy_buf) other;
-    Sink.copy t ~src:(Buffer.contents copy_buf |> Eio.Flow.string_source);
-    Buffer.clear copy_buf
+    try
+      while true do
+        match Eio.Flow.single_read src buf with
+        | i ->
+            let bufs = [ Cstruct.sub buf 0 i ] in
+            Eio.Fiber.both
+              (fun () -> Eio.Flow.write other bufs)
+              (fun () -> Sink.copy ~src:(Eio.Flow.cstruct_source bufs) t)
+      done
+    with End_of_file -> ()
   in
   let single_write () x =
     let _ : int = Eio.Flow.single_write other x in

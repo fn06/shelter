@@ -321,6 +321,36 @@ let exec (config : config) ~stdout fs proc
           in
           `Runc (Runc.spawn ~sw log env config rootfs)
       in
+      let savedTio = Unix.tcgetattr Unix.stdin in
+      let tio =
+        {
+          savedTio with
+          (* input modes *)
+          c_ignpar = true;
+          c_istrip = false;
+          c_inlcr = false;
+          c_igncr = false;
+          c_ixon = false;
+          (* c_ixany = false; *)
+          (* c_iuclc = false; *)
+          c_ixoff = false;
+          (* output modes *)
+          c_opost = false;
+          (* control modes *)
+          c_isig = false;
+          c_icanon = false;
+          c_echo = false;
+          c_echoe = false;
+          c_echok = false;
+          c_echonl = false;
+          (* c_iexten = false; *)
+
+          (* special characters *)
+          c_vmin = 1;
+          c_vtime = 0;
+        }
+      in
+      Unix.tcsetattr Unix.stdin TCSADRAIN tio;
       let start, res =
         Switch.run @@ fun sw ->
         let log =
@@ -333,6 +363,10 @@ let exec (config : config) ~stdout fs proc
         | `Runc r -> (start, Eio.Process.await r)
         | `Void v -> (start, Void.to_eio_status (Eio.Promise.await v))
       in
+
+      (* restore tio *)
+      Unix.tcsetattr Unix.stdin TCSADRAIN savedTio;
+
       let stop = Mtime_clock.now () in
       let span = Mtime.span start stop in
       let time = Mtime.Span.to_uint64_ns span in
