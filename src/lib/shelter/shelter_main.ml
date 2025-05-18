@@ -166,9 +166,7 @@ let fork (H.Store ((module S), session) : entry H.t) new_branch =
 
 (* Fork a new session from an existing one *)
 let display_history (s : entry H.t) =
-  let pp_diff fmt d =
-    if d = [] then () else Fmt.pf fmt "\n  %a" (Repr.pp Diff.t) d
-  in
+  let pp_diff fmt d = if d = [] then () else Fmt.pf fmt "\n%a%!" Diff.pp d in
   let pp_entry fmt (e : entry) =
     Fmt.pf fmt "%-10s %s%a"
       Fmt.(str "%a" (styled (`Fg `Yellow) uint64_ns_span) e.post.time)
