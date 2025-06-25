@@ -26,6 +26,7 @@
    cid
    ppx_repr
    irmin-git
+   (yojson (< "3.0.0"))
    morbig
    ppx_blob
    cmdliner
