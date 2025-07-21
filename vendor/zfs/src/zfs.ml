@@ -112,12 +112,16 @@ let snapshot ?(options = Nvlist.empty) handle path b =
 
 let exists handle path (type_ : Types.t) = C.Functions.exists handle path type_
 
-let is_mounted handle path =
-  let where = Ctypes.allocate Ctypes.string "" in
-  let v = C.Functions.is_mounted handle path where in
-  if not v then None else Some (Ctypes.( !@ ) where)
-
 let null_string = Ctypes.(coerce (ptr void) (ptr char) null)
+
+let is_mounted handle path =
+  let where = Ctypes.(coerce (ptr void) (ptr char) null) in
+  let where_ptr = Ctypes.(allocate (ptr char) where) in
+  let v = C.Functions.is_mounted handle path where_ptr in
+  if not v then None else
+    let v = Ctypes.( !@ ) where_ptr in
+    let s = Ctypes.string_from_ptr v ~length:256 in
+    Some s
 
 let mount ?mount_opts ?(mount_flags = 0) dataset =
   let res = C.Functions.mount dataset mount_opts mount_flags in
