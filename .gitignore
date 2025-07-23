@@ -3,3 +3,6 @@ _build
 *.sjson
 *.json
 *.shl
+
+docs/trees
+docs/output

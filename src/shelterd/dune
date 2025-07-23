@@ -1,0 +1,4 @@
+(executable
+ (name main)
+ (public_name shelterd)
+ (libraries eio_main shelter_common capnp-rpc-unix index.unix))
