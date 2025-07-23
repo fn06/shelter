@@ -1,0 +1,7 @@
+[forest]
+trees = [ "trees" ]                   # The directories in which your trees are stored
+assets = ["assets"]                   # The directories in which your assets are stored
+url = "https://shelter.sirref.org"
+
+home = "index"
+
