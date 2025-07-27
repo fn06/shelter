@@ -18,4 +18,31 @@ type pre = {
 
 type t = { pre : pre; post : post } [@@deriving repr]
 
+val pre :
+  ?mode:mode ->
+  ?args:string list ->
+  ?env:string list ->
+  ?cwd:string ->
+  ?user:int * int ->
+  Store.Build.t ->
+  pre
+
+val post : ?diff:Diff.t -> ?tracelog:Tracelog.t -> int64 -> post
+val v : pre -> post -> t
+
+val with_pre :
+  ?mode:mode ->
+  ?args:string list ->
+  ?env:string list ->
+  ?cwd:string ->
+  ?user:int * int ->
+  ?build:Store.Build.t ->
+  pre ->
+  pre
+
+val with_post :
+  ?diff:Diff.t -> ?tracelog:Tracelog.t -> ?time:int64 -> post -> post
+
+val pp : t list Fmt.t
+
 include Irmin.Contents.S with type t := t

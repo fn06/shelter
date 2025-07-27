@@ -141,21 +141,6 @@ let fork (H.Store ((module S), session) : entry H.t) new_branch =
       let store = H.Store ((module S), new_store) in
       Ok store
 
-(* Fork a new session from an existing one *)
-let display_history (s : entry H.t) =
-  let pp_diff fmt d =
-    if d = [] then Fmt.pf fmt "\nNo modifications to filesystem\n%!"
-    else Fmt.pf fmt "\n%a\n%!" Diff.pp d
-  in
-  let pp_entry fmt (e : entry) =
-    Fmt.pf fmt "%-10s %s%a%a\n"
-      Fmt.(str "%a" (styled (`Fg `Yellow) uint64_ns_span) e.post.time)
-      (String.concat " " e.pre.args)
-      pp_diff e.post.diff Tracelog.pp e.post.tracelog
-  in
-  let entries = history s |> List.rev in
-  List.iter (fun (_hash, c) -> Fmt.pr "%a\n%!" pp_entry c) entries
-
 let prompt status ((H.Store ((module S), _session) : entry H.t) as store) =
   let head, sesh = which_branch store in
   let sesh = Option.value ~default:"main" sesh in
@@ -206,7 +191,8 @@ let exec (config : config) env
   in
   let command = entry.pre.args in
   let hash_entry =
-    { entry with pre = { entry.pre with build = Build build } }
+    let pre = History.with_pre ~build:(Build build) entry.pre in
+    History.v pre entry.post
   in
   (* Store things under History.pre, this makes it possible to rediscover
      the hash for something purely from the arguments needed to execute something
@@ -389,42 +375,19 @@ let exec (config : config) env
             environ
           |> Option.value ~default:hash_entry.pre.cwd
         in
-        let post =
-          {
-            hash_entry.post with
-            time;
-            tracelog = Buffer.contents trace_log |> Tracelog.of_bpftrace;
-          }
-        in
+        let tracelog = Tracelog.of_bpftrace (Buffer.contents trace_log) in
+        let post = History.with_post ~time ~tracelog hash_entry.post in
         if entry.pre.mode = RW then
-          Ok
-            (`Entry
-               ( {
-                   History.pre =
-                     {
-                       hash_entry.pre with
-                       build = Build new_cid;
-                       env = environ;
-                       cwd;
-                       user = (uid, gid);
-                     };
-                   post;
-                 },
-                 rootfs ))
+          let pre =
+            History.with_pre ~build:(Build new_cid) ~env:environ ~cwd
+              ~user:(uid, gid) hash_entry.pre
+          in
+          Ok (`Entry (History.v pre post, rootfs))
         else
-          Ok
-            (`Entry
-               ( {
-                   pre =
-                     {
-                       hash_entry.pre with
-                       cwd;
-                       env = environ;
-                       user = (uid, gid);
-                     };
-                   post;
-                 },
-                 rootfs )))
+          let pre =
+            History.with_pre ~env:environ ~cwd ~user:(uid, gid) hash_entry.pre
+          in
+          Ok (`Entry (History.v pre post, rootfs)))
       else Shelter.process_error (Eio.Process.Child_error res)
 
 let complete_exec ((H.Store ((module S), store) as s : entry H.t), ctx) env
@@ -443,7 +406,7 @@ let complete_exec ((H.Store ((module S), store) as s : entry H.t), ctx) env
           Ok (s, ctx))
   | Ok (`Entry (entry, path)) ->
       (* Set diff *)
-      let entry = History.{ entry with post = { entry.post with diff } } in
+      let entry = History.(v entry.pre (History.with_post ~diff entry.post)) in
       (* Commit if RW *)
       if entry.pre.mode = RW then (
         commit
@@ -573,26 +536,16 @@ let run (config : config) env
   | Undo -> Ok (reset_hard s, ctx)
   | Replay branch -> replay config s ctx env branch
   | Info `History ->
-      display_history s;
+      let entries = history s |> List.map snd in
+      History.pp Fmt.stdout entries;
       Ok (s, ctx)
   | Exec command -> (
       let entry =
         with_latest
           ~default:(fun () ->
-            History.
-              {
-                pre =
-                  {
-                    mode = Void.RW;
-                    build = Store.Build.Image config.image;
-                    args = command;
-                    (* TODO: extract with fetch *)
-                    env = [];
-                    cwd = "/";
-                    user = (0, 0);
-                  };
-                post = { diff = []; tracelog = Tracelog.empty; time = 0L };
-              })
+            let pre = History.(pre (Image config.image) ~args:command) in
+            let post = History.post 0L in
+            History.v pre post)
           s Fun.id
       in
       let entry = { entry with pre = { entry.pre with args = command } } in
