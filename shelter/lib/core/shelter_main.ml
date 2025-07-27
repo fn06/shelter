@@ -208,9 +208,7 @@ let prompt status ((H.Store ((module S), _session) : entry H.t) as store) =
   in
   with_latest store ~default:prompt prompt_entry
 
-type ctx = { store : Store.t; tool_dir : string }
-
-let tools = [ ("opentrace", Tools.opentrace) ]
+type ctx = { store : Store.t }
 
 let init fs proc s =
   let store = Store.init fs proc "shelter" in
@@ -218,17 +216,7 @@ let init fs proc s =
     (fun (_, { History.pre = { History.args; _ }; _ }) ->
       LNoise.history_add (String.concat " " args) |> ignore)
     (history s);
-  let tool_cid = Store.cid (String.concat ":" (List.map snd tools)) in
-  let tools =
-    Store.Run.with_tool store tool_cid @@ fun tool_dir ->
-    Eio.Fiber.List.iter
-      (fun (toolname, content) ->
-        let new_path = Eio.Path.(fs / tool_dir / toolname) in
-        Eio.Path.save ~create:(`If_missing 0o755) new_path content)
-      tools;
-    tool_dir
-  in
-  { store; tool_dir = tools }
+  { store }
 
 (* Run a command:
   
@@ -292,14 +280,6 @@ let exec (config : config) env
           in
           `Void (Void.spawn ~sw void |> Void.exit_status)
         else
-          let tool_mount : Runc.Json_config.mount =
-            {
-              ty = `Bind;
-              src = ctx.tool_dir;
-              dst = "/shelter-tools";
-              readonly = true;
-            }
-          in
           let config =
             Runc.Json_config.
               {
@@ -314,7 +294,7 @@ let exec (config : config) env
                 network = [ "host" ];
                 user = (uid, gid);
                 env = entry.pre.env;
-                mounts = [ tool_mount ];
+                mounts = [];
                 entrypoint = None;
               }
           in

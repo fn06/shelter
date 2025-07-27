@@ -6,10 +6,8 @@
 (library
  (name shelter_main)
  (public_name shelter.main)
- (preprocessor_deps
-  (file opentrace))
  (preprocess
-  (pps ppx_repr ppx_blob))
+  (pps ppx_repr))
  (libraries shelter cid void zfs))
 
 (rule
