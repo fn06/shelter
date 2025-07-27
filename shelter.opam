@@ -13,7 +13,9 @@ depends: [
   "ocaml" {< "5.3.0~~"}
   "ctypes" {< "0.23.0"}
   "eio_posix"
-  "zfs"
+  "capnp-rpc-net"
+  "capnp-rpc-unix"
+  "index"
   "cid"
   "ppx_repr"
   "irmin-git"

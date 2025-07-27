@@ -1,4 +1,7 @@
 open Eio
+
+let ( / ) = Eio.Path.( / )
+
 module Store = Store
 module H = Shelter.History
 
@@ -15,7 +18,8 @@ module History = struct
         | "R" -> Void.R | "RW" -> Void.RW | _ -> failwith "Malformed Void.mode")
       (function Void.R -> "R" | Void.RW -> "RW")
 
-  type post = { diff : Diff.t; time : int64 } [@@deriving repr]
+  type post = { diff : Diff.t; time : int64; tracelog : Tracelog.t }
+  [@@deriving repr]
 
   type pre = {
     mode : mode;
@@ -166,12 +170,15 @@ let fork (H.Store ((module S), session) : entry H.t) new_branch =
 
 (* Fork a new session from an existing one *)
 let display_history (s : entry H.t) =
-  let pp_diff fmt d = if d = [] then () else Fmt.pf fmt "\n%a%!" Diff.pp d in
+  let pp_diff fmt d =
+    if d = [] then Fmt.pf fmt "\nNo modifications to filesystem\n%!"
+    else Fmt.pf fmt "\n%a\n%!" Diff.pp d
+  in
   let pp_entry fmt (e : entry) =
-    Fmt.pf fmt "%-10s %s%a"
+    Fmt.pf fmt "%-10s %s%a%a\n"
       Fmt.(str "%a" (styled (`Fg `Yellow) uint64_ns_span) e.post.time)
       (String.concat " " e.pre.args)
-      pp_diff e.post.diff
+      pp_diff e.post.diff Tracelog.pp e.post.tracelog
   in
   let entries = history s |> List.rev in
   List.iter (fun (_hash, c) -> Fmt.pr "%a\n%!" pp_entry c) entries
@@ -227,9 +234,9 @@ let init fs proc s =
   
    - TODO: pretty confusing that we `entry` to build from and also as the
      thing we are building (e.g. the build field and the args field... *)
-let exec (config : config) ~stdout fs proc
+let exec (config : config) env
     ((H.Store ((module S), _) : entry H.t), (ctx : ctx)) (entry : entry) =
-  let build, env, (uid, gid) =
+  let build, environ, (uid, gid) =
     match entry.pre.build with
     | Store.Build.Image img ->
         let build, env, user = Store.fetch ctx.store img in
@@ -252,7 +259,7 @@ let exec (config : config) ~stdout fs proc
     if entry.pre.mode = R then (Store.Run.with_build ctx.store build fn, [])
     else
       let diff_path =
-        Eio.Path.(fs / Filename.temp_dir "shelter-diff-" "" / "diff")
+        Eio.Path.(env#fs / Filename.temp_dir "shelter-diff-" "" / "diff")
       in
       Store.Run.with_clone ctx.store ~src:build new_cid diff_path fn
   in
@@ -260,12 +267,13 @@ let exec (config : config) ~stdout fs proc
   | `Exists path ->
       (* Copy the stdout log to stdout *)
       let () =
-        Eio.Path.(with_open_in (fs / (path :> string) / "log")) @@ fun ic ->
-        Eio.Flow.copy ic stdout
+        Eio.Path.(with_open_in (env#fs / (path :> string) / "log")) @@ fun ic ->
+        Eio.Flow.copy ic env#stdout
       in
-      let c = Eio.Path.(load (fs / (path :> string) / "hash")) in
+      let c = Eio.Path.(load (env#fs / (path :> string) / "hash")) in
       Ok (`Reset c)
   | `Build rootfs ->
+      let trace_log = Buffer.create 128 in
       let spawn sw log =
         if config.no_runc then
           (* Experiment Void Process *)
@@ -275,7 +283,7 @@ let exec (config : config) ~stdout fs proc
             |> Void.rootfs ~mode:entry.pre.mode rootfs
             |> Void.cwd entry.pre.cwd
             (* TODO: Support UIDs |> Void.uid 1000 *)
-            |> Void.exec ~env
+            |> Void.exec ~env:environ
                  [
                    config.shell;
                    "-c";
@@ -310,14 +318,50 @@ let exec (config : config) ~stdout fs proc
                 entrypoint = None;
               }
           in
-          let env =
-            object
-              method fs = fs
-              method proc = proc
-              method stdout = stdout
-            end
-          in
-          `Runc (Runc.spawn ~sw log env config rootfs)
+          `Runc
+            (Runc.spawn ~sw
+               ~before_start:(fun id ->
+                 (* Set up opentrace on the container's cgroup *)
+                 let pid =
+                   Eio.Process.parse_out env#process_mgr Eio.Buf_read.take_all
+                     [ "runc"; "state"; id ]
+                   |> Yojson.Safe.from_string
+                   |> Yojson.Safe.Util.member "pid"
+                   |> Yojson.Safe.Util.to_int
+                 in
+                 let cgroup =
+                   Eio.Process.parse_out env#process_mgr Eio.Buf_read.take_all
+                     [ "cat"; Fmt.str "/proc/%i/cgroup" pid ]
+                   |> Astring.String.cut ~sep:"::"
+                   |> function
+                   | Some (_, path) -> String.trim path
+                   | None -> Fmt.failwith "Failed to find cgroup for %i" pid
+                 in
+                 Eio.Fiber.fork_daemon ~sw (fun () ->
+                     Eio.Switch.run @@ fun sw ->
+                     let _ =
+                       Eio.Process.spawn ~sw
+                         ~stdout:(Eio.Flow.buffer_sink trace_log)
+                         env#process_mgr
+                         [
+                           "bpftrace";
+                           "-B";
+                           "none";
+                           "-e";
+                           {|tracepoint:syscalls:sys_enter_open / cgroup == |}
+                           ^ Fmt.str "cgroupid(\"/sys/fs/cgroup/%s\")" cgroup
+                           ^ {|/ { printf("open,%s,%s,0x%x\n", str(args->filename), comm, args->flags); } |}
+                           ^ {|tracepoint:syscalls:sys_enter_openat / cgroup == |}
+                           ^ Fmt.str "cgroupid(\"/sys/fs/cgroup/%s\")" cgroup
+                           ^ {|/ { printf("openat,%s,%s,0x%x\n", str(args->filename), comm, args->flags); } |}
+                           ^ {|tracepoint:syscalls:sys_enter_openat2 / cgroup == |}
+                           ^ Fmt.str "cgroupid(\"/sys/fs/cgroup/%s\")" cgroup
+                           ^ {|/ { printf("openat2,%s,%s,0x%x\n", str(args->filename), comm, args.how->flags); } |};
+                         ]
+                     in
+                     `Stop_daemon);
+                 Eio_unix.sleep 0.5)
+               log env config rootfs)
       in
       let savedTio = Unix.tcgetattr Unix.stdin in
       let tio =
@@ -353,7 +397,7 @@ let exec (config : config) ~stdout fs proc
         Switch.run @@ fun sw ->
         let log =
           Eio.Path.open_out ~sw ~create:(`Or_truncate 0o644)
-            Eio.Path.(fs / rootfs / "log")
+            (env#fs / rootfs / "log")
         in
         let res = spawn sw log in
         let start = Mtime_clock.now () in
@@ -375,9 +419,9 @@ let exec (config : config) ~stdout fs proc
       if res = `Exited 0 then (
         (* Extract env *)
         let env_path =
-          Eio.Path.(fs / rootfs / "rootfs" / "tmp" / "shelter-env")
+          Eio.Path.(env#fs / rootfs / "rootfs" / "tmp" / "shelter-env")
         in
-        let env =
+        let environ =
           Eio.Path.(load env_path)
           |> String.split_on_char '\n'
           |> List.filter (fun s -> not (String.equal "" s))
@@ -389,35 +433,48 @@ let exec (config : config) ~stdout fs proc
               match Astring.String.cut ~sep:"=" v with
               | Some ("PWD", dir) -> Some dir
               | _ -> None)
-            env
+            environ
           |> Option.value ~default:hash_entry.pre.cwd
+        in
+        let post =
+          {
+            hash_entry.post with
+            time;
+            tracelog = Buffer.contents trace_log |> Tracelog.of_bpftrace;
+          }
         in
         if entry.pre.mode = RW then
           Ok
             (`Entry
                ( {
-                   hash_entry with
                    History.pre =
                      {
                        hash_entry.pre with
                        build = Build new_cid;
-                       env;
+                       env = environ;
                        cwd;
                        user = (uid, gid);
                      };
+                   post;
                  },
                  rootfs ))
         else
           Ok
             (`Entry
                ( {
-                   pre = { hash_entry.pre with cwd; env; user = (uid, gid) };
-                   post = { hash_entry.post with time };
+                   pre =
+                     {
+                       hash_entry.pre with
+                       cwd;
+                       env = environ;
+                       user = (uid, gid);
+                     };
+                   post;
                  },
                  rootfs )))
       else Shelter.process_error (Eio.Process.Child_error res)
 
-let complete_exec ((H.Store ((module S), store) as s : entry H.t), ctx) clock fs
+let complete_exec ((H.Store ((module S), store) as s : entry H.t), ctx) env
     new_entry diff =
   match new_entry with
   | Error e -> Error e
@@ -438,16 +495,16 @@ let complete_exec ((H.Store ((module S), store) as s : entry H.t), ctx) clock fs
       if entry.pre.mode = RW then (
         commit
           ~message:("exec " ^ String.concat " " entry.pre.args)
-          clock s entry;
+          env#clock s entry;
         (* Save the commit hash for easy restoring later *)
         let hash = S.Head.get store |> S.Commit.hash |> S.Hash.to_raw_string in
         Eio.Path.save ~create:(`If_missing 0o644)
-          Eio.Path.(fs / path / "hash")
+          Eio.Path.(env#fs / path / "hash")
           hash);
       Ok (s, ctx)
 
-let replay config (H.Store ((module S), s) as store : entry H.t) ctx fs clock
-    proc stdout existing_branch =
+let replay config (H.Store ((module S), s) as store : entry H.t) ctx env
+    existing_branch =
   let seshes = sessions store in
   if not (List.exists (String.equal existing_branch) seshes) then (
     Fmt.epr "%s does not exist!" existing_branch;
@@ -492,20 +549,20 @@ let replay config (H.Store ((module S), s) as store : entry H.t) ctx fs clock
                   | Error _ as e -> e
                   | Ok (new_store, new_ctx) ->
                       let new_entry, diff =
-                        exec config ~stdout fs proc (new_store, new_ctx) entry
+                        exec config env (new_store, new_ctx) entry
                       in
-                      complete_exec (new_store, new_ctx) clock fs new_entry diff)
+                      complete_exec (new_store, new_ctx) env new_entry diff)
                 (Ok (H.Store ((module S), s), ctx))
                 commits_to_apply
             in
             res)
     | _ -> assert false (* Because n = 1 *)
 
-let run (config : config) ~stdout fs clock proc
+let run (config : config) env
     (((H.Store ((module S), store) : entry H.t) as s), (ctx : ctx)) = function
   | Set_mode mode ->
       with_latest ~default:(fun _ -> Ok (s, ctx)) s @@ fun entry ->
-      commit ~message:"mode change" clock s
+      commit ~message:"mode change" env#clock s
         { entry with pre = { entry.pre with mode } };
       Ok (s, ctx)
   | Set_session m -> (
@@ -561,7 +618,7 @@ let run (config : config) ~stdout fs clock proc
       Ok (s, ctx)
   | Exec [] -> Ok (s, ctx)
   | Undo -> Ok (reset_hard s, ctx)
-  | Replay branch -> replay config s ctx fs clock proc stdout branch
+  | Replay branch -> replay config s ctx env branch
   | Info `History ->
       display_history s;
       Ok (s, ctx)
@@ -581,12 +638,12 @@ let run (config : config) ~stdout fs clock proc
                     cwd = "/";
                     user = (0, 0);
                   };
-                post = { diff = []; time = 0L };
+                post = { diff = []; tracelog = Tracelog.empty; time = 0L };
               })
           s Fun.id
       in
       let entry = { entry with pre = { entry.pre with args = command } } in
       try
-        let new_entry, diff = exec config ~stdout fs proc (s, ctx) entry in
-        complete_exec (s, ctx) clock fs new_entry diff
+        let new_entry, diff = exec config env (s, ctx) entry in
+        complete_exec (s, ctx) env new_entry diff
       with Eio.Exn.Io (Eio.Process.E e, _) -> Shelter.process_error e)

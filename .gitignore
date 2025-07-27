@@ -6,3 +6,7 @@ _build
 
 docs/trees
 docs/output
+
+**/*.cap
+secrets
+**/*.index

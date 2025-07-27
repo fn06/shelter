@@ -144,7 +144,7 @@ module Json_config = struct
             Fmt.Dump.(list string)
             xs
     in
-    let namespaces = network_ns @ [ "pid"; "ipc"; "uts"; "mount" ] in
+    let namespaces = network_ns @ [ "pid"; "ipc"; "uts"; "mount"; "cgroup" ] in
     `Assoc
       [
         ("ociVersion", `String "1.0.1-dev");
@@ -219,7 +219,7 @@ module Json_config = struct
                   ~ty:"sysfs" ~src:"sysfs"
                   ~options:[ "nosuid"; "noexec"; "nodev"; "ro" ]
              :: mount "/sys/fs/cgroup" ~ty:"cgroup" ~src:"cgroup"
-                  ~options:[ "ro"; "nosuid"; "noexec"; "nodev" ]
+                  ~options:[ "nosuid"; "noexec"; "nodev" ]
              :: mount "/sys/kernel/debug" ~ty:"debugfs" ~src:"debug"
                   ~options:[ "ro"; "nosuid"; "noexec"; "nodev" ]
              :: mount "/dev/shm" ~ty:"tmpfs" ~src:"shm"
@@ -299,7 +299,7 @@ let to_other_sink_as_well ~other
   end in
   Eio.Resource.T ((), Eio.Flow.Pi.sink (module T))
 
-let spawn ~sw log env config dir =
+let spawn ~sw ~before_start log env config dir =
   let tmp = Filename.temp_dir ~perms:0o700 "shelter-run-" "" in
   let eio_tmp = Eio.Path.(env#fs / tmp) in
   let json_config = Json_config.make config ~config_dir:tmp ~results_dir:dir in
@@ -307,14 +307,59 @@ let spawn ~sw log env config dir =
     (Yojson.Safe.pretty_to_string json_config ^ "\n");
   Eio.Path.save ~create:(`If_missing 0o644) (eio_tmp / "hosts")
     "127.0.0.1 localhost builder";
-  let id = string_of_int !next_id in
+  let id = "shelter-runc-" ^ string_of_int !next_id in
   incr next_id;
-  let cmd = [ "runc"; "run"; id ] in
+  let console_socket = Eio.Path.(eio_tmp / (id ^ ".socket")) in
+  let addr = `Unix (Eio.Path.native_exn console_socket) in
+  let listen = Eio.Net.listen ~backlog:1 ~sw env#net addr in
+  let _ =
+    Eio.Process.run ~cwd:eio_tmp env#process_mgr
+      [
+        "runc";
+        "create";
+        "--console-socket";
+        Eio.Path.native_exn console_socket;
+        id;
+      ]
+  in
+  let socket, _addr = Eio.Net.accept ~sw listen in
+  let console =
+    match Eio_unix.Net.recv_msg_with_fds ~sw socket ~max_fds:1 [] with
+    | _, [ fd ] -> fd
+    | _ -> failwith "No console FD"
+  in
+  let console =
+    Eio_unix.Fd.use_exn "console-socket" console @@ fun fd ->
+    Eio_unix.Net.import_socket_stream ~sw ~close_unix:false fd
+  in
+  (* Copy console socket to stdout *)
+  let () =
+    Eio.Fiber.fork ~sw (fun () ->
+        try
+          while true do
+            Eio.Flow.copy console env#stdout
+          done
+        with _ -> ())
+  in
+  (* Copy stdin to console *)
+  let () =
+    Eio.Fiber.fork_daemon ~sw (fun () ->
+        try
+          while true do
+            Eio.Flow.copy env#stdin console
+          done
+        with _ -> `Stop_daemon)
+  in
+  Eio.Switch.on_release sw (fun () ->
+      Eio.Process.run env#process_mgr [ "runc"; "delete"; id ]);
+  before_start id;
+  let cmd = [ "runc"; "start"; id ] in
   let stdout =
     to_other_sink_as_well ~other:env#stdout
       (log :> Eio.Flow.sink_ty Eio.Flow.sink)
   in
-  Eio.Process.spawn ~sw ~stdout ~stderr:env#stdout env#proc ~cwd:eio_tmp cmd
+  Eio.Process.spawn ~sw ~stdout ~stderr:env#stdout env#process_mgr ~cwd:eio_tmp
+    cmd
 
 (* 
                                  Apache License

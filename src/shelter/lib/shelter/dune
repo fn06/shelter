@@ -11,3 +11,8 @@
  (preprocess
   (pps ppx_repr ppx_blob))
  (libraries shelter cid void zfs))
+
+(rule
+ (targets raw_flags.ml)
+ (action
+  (run ./include/discover.exe)))

@@ -2,7 +2,9 @@ module Store = Store
 
 module History : sig
   type mode = Void.mode
-  type post = { diff : Diff.t; time : int64 } [@@deriving repr]
+
+  type post = { diff : Diff.t; time : int64; tracelog : Tracelog.t }
+  [@@deriving repr]
 
   type pre = {
     mode : Void.mode;

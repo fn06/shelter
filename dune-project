@@ -22,7 +22,10 @@
    (ocaml (< "5.3.0~~")) ; for the irmin pin only
    (ctypes (< "0.23.0")) ; for a const ptr mismatch with zfs from https://github.com/yallop/ocaml-ctypes/pull/782
    eio_posix
-   zfs
+   ;vendored zfs
+   capnp-rpc-net
+   capnp-rpc-unix
+   index
    cid
    ppx_repr
    irmin-git

@@ -36,8 +36,7 @@ let main =
     Eventloop.run @@ fun env ->
     let cmd_file = Option.map (Eio.Path.( / ) env#fs) cmd_file in
     let dir = state_dir env#fs "shelter" in
-    let stdout = (env#stdout :> Eio.Flow.sink_ty Eio.Flow.sink) in
-    Main.main config ~stdout env#fs env#clock env#process_mgr dir cmd_file
+    Main.main config (env :> _ Shelter.Engine.env) dir cmd_file
   in
   let t = Term.(const run $ Shelter_main.config_term $ cmd_file) in
   let man =
@@ -56,8 +55,7 @@ let passthrough =
     Eventloop.run @@ fun env ->
     let cmd_file = Option.map (Eio.Path.( / ) env#fs) cmd_file in
     let dir = state_dir env#fs "passthrough" in
-    let stdout = (env#stdout :> Eio.Flow.sink_ty Eio.Flow.sink) in
-    Pass.main config ~stdout env#fs env#clock env#process_mgr dir cmd_file
+    Pass.main config env dir cmd_file
   in
   let t = Term.(const run $ Shelter_passthrough.config_term $ cmd_file) in
   let info = Cmd.info "passthrough" in

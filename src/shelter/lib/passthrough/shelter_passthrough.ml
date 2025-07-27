@@ -41,12 +41,12 @@ let init _ _
       in
       List.iter (fun v -> LNoise.history_add v |> ignore) entries
 
-let run (() : config) ~stdout:_ _fs clock proc
+let run (() : config) env
     ( ((Shelter.History.Store ((module S), store) : entry Shelter.History.t) as
        full_store),
       () ) (Exec command) =
   let info () =
-    S.Info.v ~message:"shelter" (Eio.Time.now clock |> Int64.of_float)
+    S.Info.v ~message:"shelter" (Eio.Time.now env#clock |> Int64.of_float)
   in
   let cmd =
     String.split_on_char ' ' command
@@ -54,7 +54,7 @@ let run (() : config) ~stdout:_ _fs clock proc
   in
   Switch.run @@ fun sw ->
   try
-    let proc = Eio.Process.spawn ~sw proc cmd in
+    let proc = Eio.Process.spawn ~sw env#process_mgr cmd in
     let res = Eio.Process.await proc in
     if res = `Exited 0 then (
       S.set_exn ~info store (key ()) command;

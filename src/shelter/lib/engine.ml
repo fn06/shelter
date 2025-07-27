@@ -1,3 +1,14 @@
+type 'a env =
+  < clock : [> float Eio.Time.clock_ty ] Eio.Resource.t
+  ; fs : Eio.Fs.dir_ty Eio.Path.t
+  ; net : [> [> `Generic | `Unix ] Eio.Net.ty ] Eio.Resource.t
+  ; process_mgr : [> [> `Generic ] Eio.Process.mgr_ty ] Eio.Resource.t
+  ; stdout : [> Eio.Flow.sink_ty ] Eio.Resource.t
+  ; stdin : [> Eio.Flow.source_ty ] Eio.Resource.t
+  ; .. >
+  as
+  'a
+
 module type S = sig
   type config
   (** A configuration *)
@@ -32,10 +43,7 @@ module type S = sig
 
   val run :
     config ->
-    stdout:Eio.Flow.sink_ty Eio.Flow.sink ->
-    Eio.Fs.dir_ty Eio.Path.t ->
-    _ Eio.Time.clock ->
-    Eio_unix.Process.mgr_ty Eio_unix.Process.mgr ->
+    _ env ->
     entry History.t * ctx ->
     action ->
     ( entry History.t * ctx,
