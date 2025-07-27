@@ -2,40 +2,13 @@ open Eio
 
 let ( / ) = Eio.Path.( / )
 
+module History = History
 module Store = Store
 module H = Shelter.History
 
-type error = string
+type error = [ `Msg of string ]
 
-let pp_error = Fmt.string
-
-module History = struct
-  type mode = Void.mode
-
-  let mode_t =
-    Repr.map Repr.string
-      (function
-        | "R" -> Void.R | "RW" -> Void.RW | _ -> failwith "Malformed Void.mode")
-      (function Void.R -> "R" | Void.RW -> "RW")
-
-  type post = { diff : Diff.t; time : int64; tracelog : Tracelog.t }
-  [@@deriving repr]
-
-  type pre = {
-    mode : mode;
-    build : Store.Build.t;
-    args : string list;
-    env : string list;
-    cwd : string;
-    user : int * int;
-  }
-  [@@deriving repr]
-  (** Needed for execution *)
-
-  type t = { pre : pre; post : post } [@@deriving repr]
-
-  let merge = Irmin.Merge.(default (Repr.option t))
-end
+let pp_error fmt (`Msg err) = Fmt.string fmt err
 
 type config = Config.t
 
@@ -160,8 +133,8 @@ let fork (H.Store ((module S), session) : entry H.t) new_branch =
   let repo = S.repo session in
   match (S.Head.find session, S.Branch.find repo new_branch) with
   | _, Some _ ->
-      Error (new_branch ^ " already exists, try @ session " ^ new_branch)
-  | None, _ -> Error "Current branch needs at least one commit"
+      Error (`Msg (new_branch ^ " already exists, try @ session " ^ new_branch))
+  | None, _ -> Error (`Msg "Current branch needs at least one commit")
   | Some commit, None ->
       let new_store = S.of_branch (S.repo session) new_branch in
       S.Branch.set repo new_branch commit;
@@ -506,7 +479,7 @@ let replay config (H.Store ((module S), s) as store : entry H.t) ctx env
         in
         let commits_to_apply = collect all_commits in
         match commits_to_apply with
-        | [] -> Shelter.shell_error ""
+        | [] -> Shelter.shell_error (`Msg "no commits")
         | (h, first) :: rest ->
             let _, last_other =
               history (H.Store ((module S), onto)) |> List.hd
@@ -555,13 +528,13 @@ let run (config : config) env
           Ok (H.Store ((module S), sesh), ctx)
       | false -> (
           match fork s m with
-          | Error err ->
+          | Error (`Msg err) ->
               Fmt.pr "[fork]: %a\n%!" (text `Red) err;
               Ok (s, ctx)
           | Ok store -> Ok (store, ctx)))
   | Unknown args ->
       Fmt.epr "%a" (text `Red) "Unknown Shelter Action\n";
-      Shelter.shell_error (String.concat " " args)
+      Shelter.shell_error (`Msg (String.concat " " args))
   | Info `Current ->
       let sessions = sessions s in
       let sesh = Option.value ~default:"main" (snd (which_branch s)) in
