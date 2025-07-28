@@ -10,26 +10,26 @@ module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
 
   let run config env store =
     let store = History.Store ((module Store), store) in
-    let initial_ctx = Engine.init env#fs env#process_mgr store in
-    let rec loop store ctx exit_code =
+    let initial_store = Engine.init env#fs env#process_mgr store in
+    let rec loop store exit_code =
       let prompt = Engine.prompt exit_code store in
       match LNoise.linenoise prompt with
       | None -> ()
       | Some input -> (
           let action = Engine.action_of_command input in
-          match Engine.run config env (store, ctx) action with
+          match Engine.run config env store action with
           | Error (`Process (Eio.Process.Child_error exit_code)) ->
               Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
-              loop store ctx exit_code
+              loop store exit_code
           | Error (`Process (Eio.Process.Executable_not_found m)) ->
               Fmt.epr "shelter: excutable not found %s\n%!" m;
-              loop store ctx (`Exited 127)
+              loop store (`Exited 127)
           | Error (`Shell e) ->
               Fmt.epr "shelter: %a\n%!" Engine.pp_error e;
-              loop store ctx (`Exited 255)
-          | Ok (store, ctx) -> loop store ctx (`Exited 0))
+              loop store (`Exited 255)
+          | Ok store -> loop store (`Exited 0))
     in
-    loop store initial_ctx (`Exited 0)
+    loop initial_store (`Exited 0)
 
   let command_file_to_actions cf =
     Eio.Path.load cf |> String.split_on_char '\n'
@@ -43,24 +43,24 @@ module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
     | Some file -> (
         let actions = command_file_to_actions file in
         let store = History.Store ((module Store), store) in
-        let initial_ctx = Engine.init env#fs env#process_mgr store in
-        let folder (store, ctx, exit_code) action =
-          if exit_code <> `Exited 0 then (store, ctx, exit_code)
+        let initial_store = Engine.init env#fs env#process_mgr store in
+        let folder (store, exit_code) action =
+          if exit_code <> `Exited 0 then (store, exit_code)
           else
-            match Engine.run config env (store, ctx) action with
+            match Engine.run config env store action with
             | Error (`Process (Eio.Process.Child_error exit_code)) ->
                 Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
-                (store, ctx, exit_code)
+                (store, exit_code)
             | Error (`Process (Eio.Process.Executable_not_found m)) ->
                 Fmt.epr "shelter: excutable not found %s\n%!" m;
-                (store, ctx, `Exited 127)
+                (store, `Exited 127)
             | Error (`Shell e) ->
                 Fmt.epr "shelter: %a\n%!" Engine.pp_error e;
-                (store, ctx, `Exited 255)
-            | Ok (store, ctx) -> (store, ctx, `Exited 0)
+                (store, `Exited 255)
+            | Ok store -> (store, `Exited 0)
         in
-        let _store, _ctx, exit_code =
-          List.fold_left folder (store, initial_ctx, `Exited 0) actions
+        let _store, exit_code =
+          List.fold_left folder (initial_store, `Exited 0) actions
         in
         match exit_code with
         | `Exited 0 -> ()

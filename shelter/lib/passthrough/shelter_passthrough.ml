@@ -25,11 +25,16 @@ let history_key = [ "history" ]
 let key () = history_key @ [ string_of_float @@ Unix.gettimeofday () ]
 
 type ctx = unit
+type store = entry Shelter.History.t
+
+let ctx _ = ()
+let history t = t
 
 let init _ _
-    (Shelter.History.Store ((module S), store) : entry Shelter.History.t) =
+    ((Shelter.History.Store ((module S), store) : entry Shelter.History.t) as s)
+    =
   match S.list store history_key with
-  | [] -> ()
+  | [] -> s
   | xs ->
       let rec loop acc = function
         | `Contents (v, _meta) :: next -> loop (v :: acc) next
@@ -39,12 +44,12 @@ let init _ _
       let entries =
         loop [] (List.map (fun (_, tree) -> S.Tree.to_concrete tree) xs)
       in
-      List.iter (fun v -> LNoise.history_add v |> ignore) entries
+      List.iter (fun v -> LNoise.history_add v |> ignore) entries;
+      s
 
 let run (() : config) env
-    ( ((Shelter.History.Store ((module S), store) : entry Shelter.History.t) as
-       full_store),
-      () ) (Exec command) =
+    ((Shelter.History.Store ((module S), store) : entry Shelter.History.t) as
+     full_store) (Exec command) =
   let info () =
     S.Info.v ~message:"shelter" (Eio.Time.now env#clock |> Int64.of_float)
   in
@@ -59,6 +64,6 @@ let run (() : config) env
     if res = `Exited 0 then (
       S.set_exn ~info store (key ()) command;
       let _ : (unit, string) result = LNoise.history_add command in
-      Ok (full_store, ()))
+      Ok full_store)
     else Shelter.process_error (Eio.Process.Child_error res)
   with Eio.Exn.Io (Eio.Process.E e, _) -> Shelter.process_error e

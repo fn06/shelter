@@ -55,94 +55,10 @@ let action_of_command cmd =
   | args -> Exec args
 
 let () = Fmt.set_style_renderer Format.str_formatter `Ansi_tty
-let history_key = [ "history" ]
-let key clock = history_key @ [ string_of_float @@ Eio.Time.now clock ]
-
-let history (H.Store ((module S), store) : entry H.t) =
-  let repo = S.repo store in
-  match S.Head.find store with
-  | None -> []
-  | Some hd ->
-      let rec linearize c =
-        match S.Commit.parents c |> List.map (S.Commit.of_hash repo) with
-        | [ Some p ] -> c :: linearize p
-        | _ -> [ c ]
-      in
-      let commits = linearize hd in
-      let get_diff_content t1 t2 =
-        match S.Tree.diff t1 t2 with
-        | [ (_, `Added (c, _)) ] -> c
-        | lst ->
-            let pp_diff =
-              Repr.pp (Irmin.Diff.t (Repr.pair History.t S.metadata_t))
-            in
-            Fmt.epr "Get diff (%i) content %a%!" (List.length lst)
-              Fmt.(list ~sep:Fmt.comma (Fmt.pair (Repr.pp S.path_t) pp_diff))
-              lst;
-            invalid_arg "Get diff should only have a single difference."
-      in
-      let hash c = S.Commit.hash c |> S.Hash.to_raw_string in
-      let rec diff_calc = function
-        | [] -> []
-        | [ x ] ->
-            let diff = get_diff_content (S.Tree.empty ()) (S.Commit.tree x) in
-            [ (hash x, diff) ]
-        | c :: p :: rest ->
-            let diff = get_diff_content (S.Commit.tree p) (S.Commit.tree c) in
-            (hash c, diff) :: diff_calc (p :: rest)
-      in
-      diff_calc commits
-
-let with_latest ~default s f =
-  match history s with [] -> default () | (_, hd) :: _ -> f hd
-
 let text c = Fmt.(styled (`Fg c) string)
 
-let sessions (H.Store ((module S), store) : entry H.t) =
-  S.Branch.list (S.repo store)
-
-let commit ~message clock (H.Store ((module S), store) : entry H.t) v =
-  let info () = S.Info.v ~message (Eio.Time.now clock |> Int64.of_float) in
-  S.set_exn ~info store (key clock) v
-
-let which_branch ((H.Store ((module S), session) : entry H.t) as s) =
-  let branches = sessions s in
-  let repo = S.repo session in
-  let heads = List.map (fun b -> (S.Branch.find repo b, b)) branches in
-  let head = S.Head.find session in
-  let head_hash =
-    Option.map
-      (fun hash -> String.sub (Fmt.str "%a" S.Commit.pp_hash hash) 0 7)
-      head
-  in
-  (head_hash, List.assoc_opt head heads)
-
-(* Reset the head of the current session by one commit *)
-let reset_hard ((H.Store ((module S), session) : entry H.t) as s) =
-  match
-    List.filter_map (S.Commit.of_hash (S.repo session))
-    @@ S.Commit.parents (S.Head.get session)
-  with
-  | [] -> s
-  | p :: _ ->
-      S.Head.set session p;
-      s
-
-(* Fork a new session from an existing one *)
-let fork (H.Store ((module S), session) : entry H.t) new_branch =
-  let repo = S.repo session in
-  match (S.Head.find session, S.Branch.find repo new_branch) with
-  | _, Some _ ->
-      Error (`Msg (new_branch ^ " already exists, try @ session " ^ new_branch))
-  | None, _ -> Error (`Msg "Current branch needs at least one commit")
-  | Some commit, None ->
-      let new_store = S.of_branch (S.repo session) new_branch in
-      S.Branch.set repo new_branch commit;
-      let store = H.Store ((module S), new_store) in
-      Ok store
-
-let prompt status ((H.Store ((module S), _session) : entry H.t) as store) =
-  let head, sesh = which_branch store in
+let prompt status store =
+  let head, sesh = Store.which_branch store in
   let sesh = Option.value ~default:"main" sesh in
   let prompt () =
     Fmt.(styled (`Fg `Yellow) string) Format.str_formatter "shelter> ";
@@ -164,30 +80,33 @@ let prompt status ((H.Store ((module S), _session) : entry H.t) as store) =
       (if e.pre.mode = R then "r" else "rw");
     Format.flush_str_formatter ()
   in
-  with_latest store ~default:prompt prompt_entry
+  Store.with_latest store ~default:prompt prompt_entry
 
-type ctx = { store : Store.t }
+type ctx = Store.ctx
+type store = Store.t
+
+let ctx = Store.get_ctx
+let history = Store.get_store
 
 let init fs proc s =
-  let store = Store.init fs proc "shelter" in
+  let ctx = Zfs_store.init fs proc "shelter" in
   List.iter
     (fun (_, { History.pre = { History.args; _ }; _ }) ->
       LNoise.history_add (String.concat " " args) |> ignore)
-    (history s);
-  { store }
+    (Store.history s);
+  Store.v s ctx
 
 (* Run a command:
   
    - TODO: pretty confusing that we `entry` to build from and also as the
      thing we are building (e.g. the build field and the args field... *)
-let exec (config : config) env
-    ((H.Store ((module S), _) : entry H.t), (ctx : ctx)) (entry : entry) =
+let exec (config : config) env (s : Store.t) (entry : entry) =
   let build, environ, (uid, gid) =
     match entry.pre.build with
-    | Store.Build.Image img ->
-        let build, env, user = Store.fetch ctx.store img in
+    | Zfs_store.Build.Image img ->
+        let build, env, user = Zfs_store.fetch s.ctx img in
         (build, env, Option.value ~default:(0, 0) user)
-    | Store.Build.Build cid -> (cid, entry.pre.env, entry.pre.user)
+    | Zfs_store.Build.Build cid -> (cid, entry.pre.env, entry.pre.user)
   in
   let command = entry.pre.args in
   let hash_entry =
@@ -200,15 +119,16 @@ let exec (config : config) env
 
      Also, combine it with previous build step. *)
   let new_cid =
-    Store.cid (Cid.to_string build ^ Repr.to_string History.pre_t hash_entry.pre)
+    Zfs_store.cid
+      (Cid.to_string build ^ Repr.to_string History.pre_t hash_entry.pre)
   in
   let with_rootfs fn =
-    if entry.pre.mode = R then (Store.Run.with_build ctx.store build fn, [])
+    if entry.pre.mode = R then (Zfs_store.Run.with_build s.ctx build fn, [])
     else
       let diff_path =
         Eio.Path.(env#fs / Filename.temp_dir "shelter-diff-" "" / "diff")
       in
-      Store.Run.with_clone ctx.store ~src:build new_cid diff_path fn
+      Zfs_store.Run.with_clone s.ctx ~src:build new_cid diff_path fn
   in
   with_rootfs @@ function
   | `Exists path ->
@@ -390,139 +310,39 @@ let exec (config : config) env
           Ok (`Entry (History.v pre post, rootfs)))
       else Shelter.process_error (Eio.Process.Child_error res)
 
-let complete_exec ((H.Store ((module S), store) as s : entry H.t), ctx) env
-    new_entry diff =
-  match new_entry with
-  | Error e -> Error e
-  | Ok (`Reset c) -> (
-      match
-        S.Hash.unsafe_of_raw_string c |> S.Commit.of_hash (S.repo store)
-      with
-      | None ->
-          Fmt.epr "Resetting to existing entry failed...\n%!";
-          Ok (s, ctx)
-      | Some c ->
-          S.Head.set store c;
-          Ok (s, ctx))
-  | Ok (`Entry (entry, path)) ->
-      (* Set diff *)
-      let entry = History.(v entry.pre (History.with_post ~diff entry.post)) in
-      (* Commit if RW *)
-      if entry.pre.mode = RW then (
-        commit
-          ~message:("exec " ^ String.concat " " entry.pre.args)
-          env#clock s entry;
-        (* Save the commit hash for easy restoring later *)
-        let hash = S.Head.get store |> S.Commit.hash |> S.Hash.to_raw_string in
-        Eio.Path.save ~create:(`If_missing 0o644)
-          Eio.Path.(env#fs / path / "hash")
-          hash);
-      Ok (s, ctx)
-
-let replay config (H.Store ((module S), s) as store : entry H.t) ctx env
-    existing_branch =
-  let seshes = sessions store in
-  if not (List.exists (String.equal existing_branch) seshes) then (
-    Fmt.epr "%s does not exist!" existing_branch;
-    Ok (store, ctx))
-  else
-    let repo = S.repo s in
-    let onto = S.of_branch repo existing_branch in
-    match S.lcas ~n:1 s onto with
-    | Error lcas_error ->
-        Fmt.epr "Replay LCAS: %a" (Repr.pp S.lca_error_t) lcas_error;
-        Ok (store, ctx)
-    | Ok [ lcas ] -> (
-        let all_commits = history store in
-        let lcas_hash = S.Commit.hash lcas |> S.Hash.to_raw_string in
-        let rec collect = function
-          | [] -> []
-          | (x, _) :: _ when String.equal lcas_hash x -> []
-          | v :: vs -> v :: collect vs
-        in
-        let commits_to_apply = collect all_commits in
-        match commits_to_apply with
-        | [] -> Shelter.shell_error (`Msg "no commits")
-        | (h, first) :: rest ->
-            let _, last_other =
-              history (H.Store ((module S), onto)) |> List.hd
-            in
-            let new_first =
-              {
-                first with
-                pre = { first.pre with build = last_other.pre.build };
-              }
-            in
-            let commits_to_apply = (h, new_first) :: rest in
-            (* Now we reset our head to point to the other store's head
-           and replay our commits onto it *)
-            let other_head = S.Head.get onto in
-            S.Head.set s other_head;
-            let res =
-              List.fold_left
-                (fun last (_, (entry : entry)) ->
-                  match last with
-                  | Error _ as e -> e
-                  | Ok (new_store, new_ctx) ->
-                      let new_entry, diff =
-                        exec config env (new_store, new_ctx) entry
-                      in
-                      complete_exec (new_store, new_ctx) env new_entry diff)
-                (Ok (H.Store ((module S), s), ctx))
-                commits_to_apply
-            in
-            res)
-    | _ -> assert false (* Because n = 1 *)
-
-let run (config : config) env
-    (((H.Store ((module S), store) : entry H.t) as s), (ctx : ctx)) = function
+let run (config : config) env (s : Store.t) = function
   | Set_mode mode ->
-      with_latest ~default:(fun _ -> Ok (s, ctx)) s @@ fun entry ->
-      commit ~message:"mode change" env#clock s
+      Store.with_latest ~default:(fun _ -> Ok s) s @@ fun entry ->
+      Store.commit ~message:"mode change" env#clock s
         { entry with pre = { entry.pre with mode } };
-      Ok (s, ctx)
+      Ok s
   | Set_session m -> (
       (* Either set the session if the branch exists or create a new branch
          from the latest commit of the current branch *)
-      let sessions = sessions s in
+      let sessions = Store.sessions s in
       match List.exists (String.equal m) sessions with
-      | true ->
-          let sesh = S.of_branch (S.repo store) m in
-          Ok (H.Store ((module S), sesh), ctx)
+      | true -> Ok (Store.set_session s m)
       | false -> (
-          match fork s m with
+          match Store.fork s ~new_branch:m with
           | Error (`Msg err) ->
               Fmt.pr "[fork]: %a\n%!" (text `Red) err;
-              Ok (s, ctx)
-          | Ok store -> Ok (store, ctx)))
+              Ok s
+          | Ok store -> Ok store))
   | Unknown args ->
       Fmt.epr "%a" (text `Red) "Unknown Shelter Action\n";
       Shelter.shell_error (`Msg (String.concat " " args))
   | Info `Current ->
-      let sessions = sessions s in
-      let sesh = Option.value ~default:"main" (snd (which_branch s)) in
-      let history = history s in
+      let sessions = Store.sessions s in
+      let sesh = Option.value ~default:"main" (snd (Store.which_branch s)) in
       let pp_commit fmt (hash, msg) =
         Fmt.pf fmt "[%a]: %s" (text `Yellow) hash msg
       in
-      let repo = S.repo store in
-      let commits =
-        List.fold_left
-          (fun acc (commit, _) ->
-            let commit =
-              S.Hash.unsafe_of_raw_string commit
-              |> S.Commit.of_hash repo |> Option.get
-            in
-            let info = S.Commit.info commit |> S.Info.message in
-            let hash = S.Commit.hash commit |> Repr.to_string S.Hash.t in
-            (String.sub hash 0 7, info) :: acc)
-          [] history
-      in
+      let commits = Store.commit_info s in
       let latest =
-        with_latest
+        Store.with_latest
           ~default:(fun () -> None)
           s
-          (fun e -> Some (Repr.to_string Store.Build.t e.pre.build))
+          (fun e -> Some (Repr.to_string Zfs_store.Build.t e.pre.build))
       in
       Fmt.pr "Sessions: %a\nCurrent: %a\nHash: %a\nCommits:@.  %a\n%!"
         Fmt.(list ~sep:(Fmt.any ", ") string)
@@ -531,17 +351,17 @@ let run (config : config) env
         latest
         Fmt.(vbox ~indent:2 @@ list pp_commit)
         commits;
-      Ok (s, ctx)
-  | Exec [] -> Ok (s, ctx)
-  | Undo -> Ok (reset_hard s, ctx)
-  | Replay branch -> replay config s ctx env branch
+      Ok s
+  | Exec [] -> Ok s
+  | Undo -> Ok (Store.reset_hard s)
+  | Replay branch -> Store.replay (exec config env) s env branch
   | Info `History ->
-      let entries = history s |> List.map snd in
+      let entries = Store.history (Store.get_store s) |> List.map snd in
       History.pp Fmt.stdout entries;
-      Ok (s, ctx)
+      Ok s
   | Exec command -> (
       let entry =
-        with_latest
+        Store.with_latest
           ~default:(fun () ->
             let pre = History.(pre (Image config.image) ~args:command) in
             let post = History.post 0L in
@@ -550,6 +370,6 @@ let run (config : config) env
       in
       let entry = { entry with pre = { entry.pre with args = command } } in
       try
-        let new_entry, diff = exec config env (s, ctx) entry in
-        complete_exec (s, ctx) env new_entry diff
+        let new_entry, diff = exec config env s entry in
+        Store.save_execution s env new_entry diff
       with Eio.Exn.Io (Eio.Process.E e, _) -> Shelter.process_error e)

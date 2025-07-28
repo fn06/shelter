@@ -19,4 +19,8 @@ type action =
   | Unknown of string list
 [@@deriving repr]
 
-include Shelter.Engine.S with type entry = History.t and type action := action
+include
+  Shelter.Engine.S
+    with type entry = History.t
+     and type store = Store.t
+     and type action := action

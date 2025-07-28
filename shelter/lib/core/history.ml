@@ -11,7 +11,7 @@ type post = { diff : Diff.t; time : int64; tracelog : Tracelog.t }
 
 type pre = {
   mode : mode;
-  build : Store.Build.t;
+  build : Zfs_store.Build.t;
   args : string list;
   env : string list;
   cwd : string;

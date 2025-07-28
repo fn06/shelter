@@ -28,6 +28,12 @@ module type S = sig
   (** A context that is not persisted, but is passed through each loop of the
       shell *)
 
+  type store
+  (** A type for your store *)
+
+  val ctx : store -> ctx
+  val history : store -> entry History.t
+
   type error
   (** Shell specific errors *)
 
@@ -37,22 +43,20 @@ module type S = sig
     _ Eio.Path.t ->
     Eio_unix.Process.mgr_ty Eio_unix.Process.mgr ->
     entry History.t ->
-    ctx
+    store
   (** [init store] will be called before entering the shell loop. You may wish
       to setup history completions etc. with LNoise. *)
 
   val run :
     config ->
     _ env ->
-    entry History.t * ctx ->
+    store ->
     action ->
-    ( entry History.t * ctx,
-      [ `Process of Eio.Process.error | `Shell of error ] )
-    result
+    (store, [ `Process of Eio.Process.error | `Shell of error ]) result
   (** [run history action] runs the action in [history]. Return a new [history]
       that can be persisted *)
 
-  val prompt : Eio.Process.exit_status -> entry History.t -> string
+  val prompt : Eio.Process.exit_status -> store -> string
   (** [prompt previous_exit_code history] generates a prompt from the current
       [history] *)
 end

@@ -7,7 +7,7 @@ type post = { diff : Diff.t; time : int64; tracelog : Tracelog.t }
 
 type pre = {
   mode : Void.mode;
-  build : Store.Build.t;
+  build : Zfs_store.Build.t;
   args : string list;
   env : string list;
   cwd : string;
@@ -24,7 +24,7 @@ val pre :
   ?env:string list ->
   ?cwd:string ->
   ?user:int * int ->
-  Store.Build.t ->
+  Zfs_store.Build.t ->
   pre
 
 val post : ?diff:Diff.t -> ?tracelog:Tracelog.t -> int64 -> post
@@ -36,7 +36,7 @@ val with_pre :
   ?env:string list ->
   ?cwd:string ->
   ?user:int * int ->
-  ?build:Store.Build.t ->
+  ?build:Zfs_store.Build.t ->
   pre ->
   pre
 
