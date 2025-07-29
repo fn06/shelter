@@ -22,7 +22,7 @@ module type S = sig
   val action : action Repr.t
   val action_of_command : string -> action
 
-  type entry
+  type contents
 
   type ctx
   (** A context that is not persisted, but is passed through each loop of the
@@ -32,7 +32,7 @@ module type S = sig
   (** A type for your store *)
 
   val ctx : store -> ctx
-  val history : store -> entry History.t
+  val history : store -> contents History.t
 
   type error
   (** Shell specific errors *)
@@ -42,7 +42,7 @@ module type S = sig
   val init :
     _ Eio.Path.t ->
     Eio_unix.Process.mgr_ty Eio_unix.Process.mgr ->
-    entry History.t ->
+    contents History.t ->
     store
   (** [init store] will be called before entering the shell loop. You may wish
       to setup history completions etc. with LNoise. *)

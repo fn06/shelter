@@ -14,7 +14,7 @@ type config = Config.t
 
 let config_term = Config.cmdliner
 
-type entry = History.t
+type contents = History.t
 
 type action =
   (* Change modes *)
@@ -74,33 +74,36 @@ let prompt status store =
     | `Exited n -> Fmt.pf fmt "%a " (text `Red) (string_of_int n)
     | _ -> Fmt.nop fmt ()
   in
-  let prompt_entry (e : entry) =
+  let prompt_entry (e : contents) =
+    let hd = History.latest e in
     Fmt.pf Format.str_formatter "%a%a%a : { mode: %a }> " pp_status status
       (text `Yellow) "shelter" pp_sesh sesh (text `Red)
-      (if e.pre.mode = R then "r" else "rw");
+      (if hd.pre.mode = R then "r" else "rw");
     Format.flush_str_formatter ()
   in
-  Store.with_latest store ~default:prompt prompt_entry
+  Store.with_latest (Store.get_store store) ~default:prompt prompt_entry
 
 type ctx = Store.ctx
 type store = Store.t
 
 let ctx = Store.get_ctx
 let history = Store.get_store
+let with_latest_iter = Store.with_latest ~default:(fun () -> ())
 
 let init fs proc s =
   let ctx = Zfs_store.init fs proc "shelter" in
-  List.iter
-    (fun (_, { History.pre = { History.args; _ }; _ }) ->
-      LNoise.history_add (String.concat " " args) |> ignore)
-    (Store.history s);
+  let f =
+    List.iter (fun { History.pre = { History.args; _ }; _ } ->
+        LNoise.history_add (String.concat " " args) |> ignore)
+  in
+  with_latest_iter s f;
   Store.v s ctx
 
 (* Run a command:
   
    - TODO: pretty confusing that we `entry` to build from and also as the
      thing we are building (e.g. the build field and the args field... *)
-let exec (config : config) env (s : Store.t) (entry : entry) =
+let exec (config : config) env (s : Store.t) (entry : History.entry) =
   let build, environ, (uid, gid) =
     match entry.pre.build with
     | Zfs_store.Build.Image img ->
@@ -164,10 +167,13 @@ let exec (config : config) env (s : Store.t) (entry : entry) =
               {
                 cwd = entry.pre.cwd;
                 argv =
+                  (* TODO: Workaround for exit_status pain with runc start *)
                   [
                     config.shell;
                     "-c";
-                    String.concat " " command ^ " && env > /tmp/shelter-env";
+                    Fmt.str "(%s)" (String.concat " " command)
+                    ^ "; status=$?; echo $status > /tmp/shelter-status; env > \
+                       /tmp/shelter-env; exit $status";
                   ];
                 hostname = "builder";
                 network = [ "host" ];
@@ -219,7 +225,7 @@ let exec (config : config) env (s : Store.t) (entry : entry) =
                          ]
                      in
                      `Stop_daemon);
-                 Eio_unix.sleep 0.5)
+                 Eio_unix.sleep 0.3)
                log env config rootfs)
       in
       let savedTio = Unix.tcgetattr Unix.stdin in
@@ -252,7 +258,7 @@ let exec (config : config) env (s : Store.t) (entry : entry) =
         }
       in
       Unix.tcsetattr Unix.stdin TCSADRAIN tio;
-      let start, res =
+      let start, _ =
         Switch.run @@ fun sw ->
         let log =
           Eio.Path.open_out ~sw ~create:(`Or_truncate 0o644)
@@ -275,7 +281,11 @@ let exec (config : config) env (s : Store.t) (entry : entry) =
       let _ : (unit, string) result =
         LNoise.history_add (String.concat " " command)
       in
-      if res = `Exited 0 then (
+      let status =
+        Eio.Path.(load (env#fs / rootfs / "rootfs" / "tmp" / "shelter-status"))
+        |> String.trim |> int_of_string
+      in
+      if status = 0 then (
         (* Extract env *)
         let env_path =
           Eio.Path.(env#fs / rootfs / "rootfs" / "tmp" / "shelter-env")
@@ -308,13 +318,15 @@ let exec (config : config) env (s : Store.t) (entry : entry) =
             History.with_pre ~env:environ ~cwd ~user:(uid, gid) hash_entry.pre
           in
           Ok (`Entry (History.v pre post, rootfs)))
-      else Shelter.process_error (Eio.Process.Child_error res)
+      else Shelter.process_error (Eio.Process.Child_error (`Exited status))
 
 let run (config : config) env (s : Store.t) = function
   | Set_mode mode ->
-      Store.with_latest ~default:(fun _ -> Ok s) s @@ fun entry ->
+      Store.with_latest ~default:(fun _ -> Ok s) (Store.get_store s)
+      @@ fun contents ->
+      let entry = History.latest contents in
       Store.commit ~message:"mode change" env#clock s
-        { entry with pre = { entry.pre with mode } };
+        ({ entry with pre = { entry.pre with mode } } :: contents);
       Ok s
   | Set_session m -> (
       (* Either set the session if the branch exists or create a new branch
@@ -341,8 +353,10 @@ let run (config : config) env (s : Store.t) = function
       let latest =
         Store.with_latest
           ~default:(fun () -> None)
-          s
-          (fun e -> Some (Repr.to_string Zfs_store.Build.t e.pre.build))
+          (Store.get_store s)
+          (fun c ->
+            let e = History.latest c in
+            Some (Repr.to_string Zfs_store.Build.t e.pre.build))
       in
       Fmt.pr "Sessions: %a\nCurrent: %a\nHash: %a\nCommits:@.  %a\n%!"
         Fmt.(list ~sep:(Fmt.any ", ") string)
@@ -356,7 +370,9 @@ let run (config : config) env (s : Store.t) = function
   | Undo -> Ok (Store.reset_hard s)
   | Replay branch -> Store.replay (exec config env) s env branch
   | Info `History ->
-      let entries = Store.history (Store.get_store s) |> List.map snd in
+      let entries =
+        Store.with_latest ~default:(fun () -> []) (Store.get_store s) Fun.id
+      in
       History.pp Fmt.stdout entries;
       Ok s
   | Exec command -> (
@@ -365,8 +381,9 @@ let run (config : config) env (s : Store.t) = function
           ~default:(fun () ->
             let pre = History.(pre (Image config.image) ~args:command) in
             let post = History.post 0L in
-            History.v pre post)
-          s Fun.id
+            [ History.v pre post ])
+          (Store.get_store s) Fun.id
+        |> History.latest
       in
       let entry = { entry with pre = { entry.pre with args = command } } in
       try

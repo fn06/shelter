@@ -1,10 +1,3 @@
-module type S = sig
-  type t
-  (** A single history entry *)
-
-  include Irmin.Contents.S with type t := t
-end
-
 type 'entry t =
   | Store :
       ((module Irmin.S

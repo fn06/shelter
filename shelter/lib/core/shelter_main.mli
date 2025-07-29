@@ -21,6 +21,6 @@ type action =
 
 include
   Shelter.Engine.S
-    with type entry = History.t
+    with type contents = History.t
      and type store = Store.t
      and type action := action

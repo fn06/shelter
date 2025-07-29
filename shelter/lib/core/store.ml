@@ -1,11 +1,10 @@
 module H = Shelter.History
 
 type ctx = Zfs_store.t
-type entry = History.t
-type store = entry H.t
+type entry = History.entry
+type store = entry list H.t
 
 let history_key = [ "history" ]
-let key clock = history_key @ [ string_of_float @@ Eio.Time.now clock ]
 
 type t = { store : store; ctx : ctx }
 
@@ -27,6 +26,7 @@ let history (H.Store ((module S), store) : store) =
       let get_diff_content t1 t2 =
         match S.Tree.diff t1 t2 with
         | [ (_, `Added (c, _)) ] -> c
+        | [ (_, `Updated ((_, _), (c, _))) ] -> c
         | lst ->
             let pp_diff =
               Repr.pp (Irmin.Diff.t (Repr.pair History.t S.metadata_t))
@@ -49,7 +49,7 @@ let history (H.Store ((module S), store) : store) =
       diff_calc commits
 
 let with_latest ~default s f =
-  match history (get_store s) with [] -> default () | (_, hd) :: _ -> f hd
+  match history s with [] -> default () | (_, hd) :: _ -> f hd
 
 let text c = Fmt.(styled (`Fg c) string)
 
@@ -58,7 +58,7 @@ let sessions { store = H.Store ((module S), store); _ } =
 
 let commit ~message clock { store = H.Store ((module S), store); _ } v =
   let info () = S.Info.v ~message (Eio.Time.now clock |> Int64.of_float) in
-  S.set_exn ~info store (key clock) v
+  S.set_exn ~info store history_key v
 
 let commit_info { store = H.Store ((module S), store); _ } =
   let history = history (H.Store ((module S), store)) in
@@ -129,12 +129,15 @@ let save_execution ({ store = H.Store ((module S), store); _ } as s) env
           Ok s)
   | Ok (`Entry (entry, path)) ->
       (* Set diff *)
-      let entry = History.(v entry.pre (History.with_post ~diff entry.post)) in
+      let current = Option.value ~default:[] @@ S.find store history_key in
+      let new_entry =
+        History.(v entry.pre (History.with_post ~diff entry.post))
+      in
       (* Commit if RW *)
       if entry.pre.mode = RW then (
         commit
           ~message:("exec " ^ String.concat " " entry.pre.args)
-          env#clock s entry;
+          env#clock s (new_entry :: current);
         (* Save the commit hash for easy restoring later *)
         let hash = S.Head.get store |> S.Commit.hash |> S.Hash.to_raw_string in
         Eio.Path.save ~create:(`If_missing 0o644)
@@ -170,11 +173,14 @@ let replay exec ({ store = H.Store ((module S), store); ctx } as s) env
             let _, last_other =
               history (H.Store ((module S), onto)) |> List.hd
             in
+            let first = List.hd first in
+            let last_other_head = List.hd last_other in
             let new_first =
               {
                 first with
-                pre = { first.pre with build = last_other.pre.build };
+                pre = { first.pre with build = last_other_head.pre.build };
               }
+              :: last_other
             in
             let commits_to_apply = (h, new_first) :: rest in
             (* Now we reset our head to point to the other store's head
@@ -183,12 +189,13 @@ let replay exec ({ store = H.Store ((module S), store); ctx } as s) env
             S.Head.set store other_head;
             let res =
               List.fold_left
-                (fun last (_, (entry : entry)) ->
+                (fun last (_, (entry : History.t)) ->
+                  let entry_to_apply = History.latest entry in
                   match last with
                   | Error _ as e -> e
                   | Ok { store = new_store; ctx = new_ctx } ->
                       let new_entry, diff =
-                        exec { store = new_store; ctx = new_ctx } entry
+                        exec { store = new_store; ctx = new_ctx } entry_to_apply
                       in
                       save_execution
                         { store = new_store; ctx = new_ctx }

@@ -16,7 +16,8 @@ type pre = {
 [@@deriving repr]
 (** Needed for execution *)
 
-type t = { pre : pre; post : post } [@@deriving repr]
+type entry = { pre : pre; post : post } [@@deriving repr]
+type t = entry list [@@deriving repr]
 
 val pre :
   ?mode:mode ->
@@ -28,7 +29,7 @@ val pre :
   pre
 
 val post : ?diff:Diff.t -> ?tracelog:Tracelog.t -> int64 -> post
-val v : pre -> post -> t
+val v : pre -> post -> entry
 
 val with_pre :
   ?mode:mode ->
@@ -43,6 +44,8 @@ val with_pre :
 val with_post :
   ?diff:Diff.t -> ?tracelog:Tracelog.t -> ?time:int64 -> post -> post
 
-val pp : t list Fmt.t
+val latest : t -> entry
+val empty : t
+val pp : t Fmt.t
 
 include Irmin.Contents.S with type t := t

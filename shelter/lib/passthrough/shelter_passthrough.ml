@@ -13,7 +13,7 @@ type action = Exec of string [@@deriving repr]
 let action = action_t
 let action_of_command cmd = Exec cmd
 
-type entry = string [@@derviving repr]
+type contents = string [@@derviving repr]
 
 let () = Fmt.set_style_renderer Format.str_formatter `Ansi_tty
 
@@ -25,14 +25,14 @@ let history_key = [ "history" ]
 let key () = history_key @ [ string_of_float @@ Unix.gettimeofday () ]
 
 type ctx = unit
-type store = entry Shelter.History.t
+type store = contents Shelter.History.t
 
 let ctx _ = ()
 let history t = t
 
 let init _ _
-    ((Shelter.History.Store ((module S), store) : entry Shelter.History.t) as s)
-    =
+    ((Shelter.History.Store ((module S), store) : contents Shelter.History.t) as
+     s) =
   match S.list store history_key with
   | [] -> s
   | xs ->
@@ -48,7 +48,7 @@ let init _ _
       s
 
 let run (() : config) env
-    ((Shelter.History.Store ((module S), store) : entry Shelter.History.t) as
+    ((Shelter.History.Store ((module S), store) : contents Shelter.History.t) as
      full_store) (Exec command) =
   let info () =
     S.Info.v ~message:"shelter" (Eio.Time.now env#clock |> Int64.of_float)

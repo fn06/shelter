@@ -5,29 +5,32 @@ module Script = Script
 let process_error e = Error (`Process e)
 let shell_error e = Error (`Shell e)
 
-module Make (H : History.S) (Engine : Engine.S with type entry = H.t) = struct
+module Make (H : Irmin.Contents.S) (Engine : Engine.S with type contents = H.t) =
+struct
   module Store = Irmin_git_unix.FS.KV (H)
 
   let run config env store =
     let store = History.Store ((module Store), store) in
     let initial_store = Engine.init env#fs env#process_mgr store in
     let rec loop store exit_code =
-      let prompt = Engine.prompt exit_code store in
-      match LNoise.linenoise prompt with
-      | None -> ()
-      | Some input -> (
-          let action = Engine.action_of_command input in
-          match Engine.run config env store action with
-          | Error (`Process (Eio.Process.Child_error exit_code)) ->
-              Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
-              loop store exit_code
-          | Error (`Process (Eio.Process.Executable_not_found m)) ->
-              Fmt.epr "shelter: excutable not found %s\n%!" m;
-              loop store (`Exited 127)
-          | Error (`Shell e) ->
-              Fmt.epr "shelter: %a\n%!" Engine.pp_error e;
-              loop store (`Exited 255)
-          | Ok store -> loop store (`Exited 0))
+      try
+        let prompt = Engine.prompt exit_code store in
+        match LNoise.linenoise prompt with
+        | None -> ()
+        | Some input -> (
+            let action = Engine.action_of_command input in
+            match Engine.run config env store action with
+            | Error (`Process (Eio.Process.Child_error exit_code)) ->
+                Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
+                loop store exit_code
+            | Error (`Process (Eio.Process.Executable_not_found m)) ->
+                Fmt.epr "shelter: excutable not found %s\n%!" m;
+                loop store (`Exited 127)
+            | Error (`Shell e) ->
+                Fmt.epr "shelter: %a\n%!" Engine.pp_error e;
+                loop store (`Exited 255)
+            | Ok store -> loop store (`Exited 0))
+      with Sys.Break -> loop store (`Exited 130)
     in
     loop initial_store (`Exited 0)
 

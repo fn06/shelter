@@ -20,7 +20,8 @@ type pre = {
 [@@deriving repr]
 (** Needed for execution *)
 
-type t = { pre : pre; post : post } [@@deriving repr]
+type entry = { pre : pre; post : post } [@@deriving repr]
+type t = entry list [@@deriving repr]
 
 let pre ?(mode = Void.RW) ?(args = []) ?(env = []) ?(cwd = "/") ?(user = (0, 0))
     build =
@@ -48,14 +49,17 @@ let with_post ?diff ?tracelog ?time post =
     tracelog = Option.value ~default:post.tracelog tracelog;
   }
 
-let merge = Irmin.Merge.(default (Repr.option t))
+let merge_function ~old:_ _t1 t2 = Ok t2
+let merge = Irmin.Merge.option @@ Irmin.Merge.v t merge_function
+let latest = function [] -> invalid_arg "Empty history!" | x :: _ -> x
+let empty = []
 
 let pp fmt entries =
   let pp_diff fmt d =
     if d = [] then Fmt.pf fmt "\nNo modifications to filesystem\n%!"
     else Fmt.pf fmt "\n%a\n%!" Diff.pp d
   in
-  let pp_entry fmt (e : t) =
+  let pp_entry fmt (e : entry) =
     Fmt.pf fmt "%-10s %s%a%a\n"
       Fmt.(str "%a" (styled (`Fg `Yellow) uint64_ns_span) e.post.time)
       (String.concat " " e.pre.args)

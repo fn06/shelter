@@ -1,1 +1,1 @@
-include Shelter.Engine.S with type entry = string
+include Shelter.Engine.S with type contents = string
