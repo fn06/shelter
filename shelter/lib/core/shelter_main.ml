@@ -28,6 +28,8 @@ type action =
   | Undo
   (* Replay the current branch onto another *)
   | Replay of string
+  (* Merge one branch into another *)
+  | Merge of string
   (* Display info *)
   | Info of [ `Current | `History ]
   (* Error state *)
@@ -44,6 +46,7 @@ let shelter_action = function
   | "mode" :: [ "rw" ] -> Set_mode RW
   | "session" :: [ m ] -> Set_session m
   | "replay" :: [ onto ] -> Replay onto
+  | "merge" :: [ into ] -> Merge into
   | [ "info" ] -> Info `Current
   | [ "undo" ] -> Undo
   | [ "history" ] -> Info `History
@@ -57,8 +60,8 @@ let action_of_command cmd =
 let () = Fmt.set_style_renderer Format.str_formatter `Ansi_tty
 let text c = Fmt.(styled (`Fg c) string)
 
-let prompt status store =
-  let head, sesh = Store.which_branch store in
+let prompt env status store =
+  let head, sesh = Store.which_branch store env in
   let sesh = Option.value ~default:"main" sesh in
   let prompt () =
     Fmt.(styled (`Fg `Yellow) string) Format.str_formatter "shelter> ";
@@ -333,9 +336,9 @@ let run (config : config) env (s : Store.t) = function
          from the latest commit of the current branch *)
       let sessions = Store.sessions s in
       match List.exists (String.equal m) sessions with
-      | true -> Ok (Store.set_session s m)
+      | true -> Ok (Store.set_session env s m)
       | false -> (
-          match Store.fork s ~new_branch:m with
+          match Store.fork env s ~new_branch:m with
           | Error (`Msg err) ->
               Fmt.pr "[fork]: %a\n%!" (text `Red) err;
               Ok s
@@ -345,7 +348,9 @@ let run (config : config) env (s : Store.t) = function
       Shelter.shell_error (`Msg (String.concat " " args))
   | Info `Current ->
       let sessions = Store.sessions s in
-      let sesh = Option.value ~default:"main" (snd (Store.which_branch s)) in
+      let sesh =
+        Option.value ~default:"main" (snd (Store.which_branch s env))
+      in
       let pp_commit fmt (hash, msg) =
         Fmt.pf fmt "[%a]: %s" (text `Yellow) hash msg
       in
@@ -369,9 +374,19 @@ let run (config : config) env (s : Store.t) = function
   | Exec [] -> Ok s
   | Undo -> Ok (Store.reset_hard s)
   | Replay branch -> Store.replay (exec config env) s env branch
+  | Merge branch -> (
+      match Store.merge s env branch with
+      | Ok () -> Ok s
+      | Error con ->
+          Shelter.shell_error
+            (`Msg
+               (Fmt.str "Merged failed: %a"
+                  (Repr.pp Irmin.Merge.conflict_t)
+                  con)))
   | Info `History ->
       let entries =
         Store.with_latest ~default:(fun () -> []) (Store.get_store s) Fun.id
+        |> List.rev
       in
       History.pp Fmt.stdout entries;
       Ok s

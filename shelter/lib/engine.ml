@@ -56,7 +56,7 @@ module type S = sig
   (** [run history action] runs the action in [history]. Return a new [history]
       that can be persisted *)
 
-  val prompt : Eio.Process.exit_status -> store -> string
+  val prompt : _ env -> Eio.Process.exit_status -> store -> string
   (** [prompt previous_exit_code history] generates a prompt from the current
       [history] *)
 end

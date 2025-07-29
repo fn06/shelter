@@ -102,4 +102,5 @@ let pp fmt diffs =
              (String.starts_with ~prefix:"shelter" (path v)
              || String.starts_with ~prefix:"tmp" (path v)))
   in
-  Fmt.pf fmt "%a" Fmt.(list ~sep:Format.pp_force_newline pp_diff) lvs
+  if lvs = [] then Fmt.nop fmt ()
+  else Fmt.pf fmt "%a" Fmt.(list ~sep:Format.pp_force_newline pp_diff) lvs

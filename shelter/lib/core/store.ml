@@ -74,34 +74,6 @@ let commit_info { store = H.Store ((module S), store); _ } =
       (String.sub hash 0 7, info) :: acc)
     [] history
 
-let which_branch ({ store = H.Store ((module S), store); _ } as s) =
-  let branches = sessions s in
-  let repo = S.repo store in
-  let heads = List.map (fun b -> (S.Branch.find repo b, b)) branches in
-  let head = S.Head.find store in
-  let head_hash =
-    Option.map
-      (fun hash -> String.sub (Fmt.str "%a" S.Commit.pp_hash hash) 0 7)
-      head
-  in
-  (head_hash, List.assoc_opt head heads)
-
-let set_session { store = H.Store ((module S), store); ctx } m =
-  let sesh = S.of_branch (S.repo store) m in
-  { store = H.Store ((module S), sesh); ctx }
-
-let fork { store = H.Store ((module S), session); ctx } ~new_branch =
-  let repo = S.repo session in
-  match (S.Head.find session, S.Branch.find repo new_branch) with
-  | _, Some _ ->
-      Error (`Msg (new_branch ^ " already exists, try @ session " ^ new_branch))
-  | None, _ -> Error (`Msg "Current branch needs at least one commit")
-  | Some commit, None ->
-      let new_store = S.of_branch (S.repo session) new_branch in
-      S.Branch.set repo new_branch commit;
-      let store = H.Store ((module S), new_store) in
-      Ok { store; ctx }
-
 (* Reset the head of the current session by one commit *)
 let reset_hard ({ store = H.Store ((module S), store); _ } as s) =
   match
@@ -205,3 +177,66 @@ let replay exec ({ store = H.Store ((module S), store); ctx } as s) env
             in
             res)
     | _ -> assert false (* Because n = 1 *)
+
+let merge { store = H.Store ((module S), store); _ } env branch_name =
+  let branch = S.of_branch (S.repo store) branch_name in
+  let message = Fmt.str "merged %s" branch_name in
+  let info () = S.Info.v ~message (Eio.Time.now env#clock |> Int64.of_float) in
+  S.merge_into ~into:store ~info branch
+
+let with_directory { store = H.Store ((module S), store); _ } env fn =
+  let repo = S.repo store in
+  let config = S.Repo.config repo in
+  match Irmin.Backend.Conf.find_root config with
+  | None -> failwith "No directory!"
+  | Some p -> fn Eio.Path.(env#fs / p)
+
+let save_branch_name s env ~name =
+  with_directory s env @@ fun dir ->
+  Eio.Path.(save ~create:(`If_missing 0o644) (dir / "runtime-branch") name)
+
+let which_branch_from_file s env =
+  with_directory s env @@ fun dir -> Eio.Path.(load (dir / "runtime-branch"))
+
+let which_branch ({ store = H.Store ((module S), store); _ } as s) env =
+  let branches = sessions s in
+  let repo = S.repo store in
+  let heads = List.map (fun b -> (S.Branch.find repo b, b)) branches in
+  let head = S.Head.find store in
+  let head_hash =
+    Option.map
+      (fun hash -> String.sub (Fmt.str "%a" S.Commit.pp_hash hash) 0 7)
+      head
+  in
+  let branches =
+    List.find_all
+      (fun (h, _) ->
+        Repr.(unstage (equal (Repr.option (S.Commit.t repo)))) head h)
+      heads
+  in
+  match branches with
+  | [] -> (head_hash, None)
+  | [ (_, c) ] -> (head_hash, Some c)
+  | _ ->
+      (* The case where we have _just_ created a new branch and cannot
+       distinguish it from the branch we created it from *)
+      (head_hash, Some (which_branch_from_file s env))
+
+(* New sessions *)
+let set_session env ({ store = H.Store ((module S), store); ctx } as s) m =
+  let sesh = S.of_branch (S.repo store) m in
+  save_branch_name s env ~name:m;
+  { store = H.Store ((module S), sesh); ctx }
+
+let fork env ({ store = H.Store ((module S), session); ctx } as s) ~new_branch =
+  let repo = S.repo session in
+  match (S.Head.find session, S.Branch.find repo new_branch) with
+  | _, Some _ ->
+      Error (`Msg (new_branch ^ " already exists, try @ session " ^ new_branch))
+  | None, _ -> Error (`Msg "Current branch needs at least one commit")
+  | Some commit, None ->
+      let new_store = S.of_branch (S.repo session) new_branch in
+      S.Branch.set repo new_branch commit;
+      save_branch_name s env ~name:new_branch;
+      let store = H.Store ((module S), new_store) in
+      Ok { store; ctx }

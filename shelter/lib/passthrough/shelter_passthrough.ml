@@ -17,7 +17,7 @@ type contents = string [@@derviving repr]
 
 let () = Fmt.set_style_renderer Format.str_formatter `Ansi_tty
 
-let prompt _ _ =
+let prompt _ _ _ =
   Fmt.(styled (`Fg `Red) string) Format.str_formatter "shelter-p> ";
   Format.flush_str_formatter ()
 

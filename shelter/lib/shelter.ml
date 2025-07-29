@@ -14,7 +14,7 @@ struct
     let initial_store = Engine.init env#fs env#process_mgr store in
     let rec loop store exit_code =
       try
-        let prompt = Engine.prompt exit_code store in
+        let prompt = Engine.prompt env exit_code store in
         match LNoise.linenoise prompt with
         | None -> ()
         | Some input -> (

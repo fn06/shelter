@@ -49,20 +49,33 @@ let with_post ?diff ?tracelog ?time post =
     tracelog = Option.value ~default:post.tracelog tracelog;
   }
 
-let merge_function ~old:_ _t1 t2 = Ok t2
+let merge_function ~old t1 t2 =
+  (* By the design of the merge function these three histories
+     will have a subset of commands that are the same ([old])
+     and all of the new commands are what is left *)
+  match old () with
+  | Error _ as e -> e
+  | Ok old ->
+      let number_of_shared_cmds =
+        Option.map List.length old |> Option.value ~default:0
+      in
+      (* let t1_new = *)
+      (*   List.rev t1 |> List.filteri (fun i _ -> i < number_of_shared_cmds) *)
+      (* in *)
+      let t2_new =
+        List.rev t2 |> List.filteri (fun i _ -> i < number_of_shared_cmds)
+      in
+      Ok (t1 @ t2_new)
+
 let merge = Irmin.Merge.option @@ Irmin.Merge.v t merge_function
 let latest = function [] -> invalid_arg "Empty history!" | x :: _ -> x
 let empty = []
 
 let pp fmt entries =
-  let pp_diff fmt d =
-    if d = [] then Fmt.pf fmt "\nNo modifications to filesystem\n%!"
-    else Fmt.pf fmt "\n%a\n%!" Diff.pp d
-  in
   let pp_entry fmt (e : entry) =
-    Fmt.pf fmt "%-10s %s%a%a\n"
+    Fmt.pf fmt "%-10s %s\n%a"
       Fmt.(str "%a" (styled (`Fg `Yellow) uint64_ns_span) e.post.time)
       (String.concat " " e.pre.args)
-      pp_diff e.post.diff Tracelog.pp e.post.tracelog
+      Diff.pp e.post.diff (* Tracelog.pp e.post.tracelog *)
   in
   List.iter (fun c -> Fmt.pf fmt "%a\n%!" pp_entry c) entries

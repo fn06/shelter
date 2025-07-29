@@ -13,6 +13,8 @@ type action =
   | Undo
   (* Replay the current branch onto another *)
   | Replay of string
+  (* Merging *)
+  | Merge of string
   (* Display info *)
   | Info of [ `Current | `History ]
   (* Error state *)
