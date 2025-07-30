@@ -30,7 +30,7 @@
    ppx_repr
    irmin-git
    (yojson (< "3.0.0"))
-   morbig
+   (morbig (= "0.11.0"))
    ppx_blob
    cmdliner
   )
