@@ -36,9 +36,25 @@ type action =
   | Unknown of string list
 [@@deriving repr]
 
+let pp_action fmt = function
+  | Set_mode R -> Fmt.pf fmt "%@ mode r"
+  | Set_mode RW -> Fmt.pf fmt "%@ mode rw"
+  | Set_session n -> Fmt.pf fmt "%@ session %s" n
+  | Undo -> Fmt.string fmt "%@ undo"
+  | Replay onto -> Fmt.pf fmt "%@ replay %s" onto
+  | Merge into -> Fmt.pf fmt "%@ merge %s" into
+  | Info `Current -> Fmt.pf fmt "%@ info"
+  | Info `History -> Fmt.pf fmt "%@ history"
+  | Exec exec -> Fmt.(list ~sep:(Fmt.any " ") string) fmt exec
+  | Unknown u -> Fmt.pf fmt "unknown: %a" Fmt.(list ~sep:(Fmt.any " ") string) u
+
+let action_t = Repr.like ~pp:pp_action action_t
+
 let split_and_remove_empty s =
   String.split_on_char ' ' s |> List.filter (fun v -> not (String.equal "" v))
 
+let () = Fmt.set_style_renderer Format.str_formatter `Ansi_tty
+let text c = Fmt.(styled (`Fg c) string)
 let action = action_t
 
 let shelter_action = function
@@ -56,9 +72,6 @@ let action_of_command cmd =
   match split_and_remove_empty cmd with
   | "@" :: rest -> shelter_action rest
   | args -> Exec args
-
-let () = Fmt.set_style_renderer Format.str_formatter `Ansi_tty
-let text c = Fmt.(styled (`Fg c) string)
 
 let prompt env status store =
   let head, sesh = Store.which_branch store env in
@@ -129,12 +142,14 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
       (Cid.to_string build ^ Repr.to_string History.pre_t hash_entry.pre)
   in
   let with_rootfs fn =
-    if entry.pre.mode = R then (Zfs_store.Run.with_build s.ctx build fn, [])
+    if entry.pre.mode = R then
+      (Zfs_store.Run.with_build ~overlays:entry.overlays s.ctx build fn, [])
     else
       let diff_path =
         Eio.Path.(env#fs / Filename.temp_dir "shelter-diff-" "" / "diff")
       in
-      Zfs_store.Run.with_clone s.ctx ~src:build new_cid diff_path fn
+      Zfs_store.Run.with_clone ~overlays:entry.overlays s.ctx ~src:build new_cid
+        diff_path fn
   in
   with_rootfs @@ function
   | `Exists path ->
@@ -187,7 +202,7 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
               }
           in
           `Runc
-            (Runc.spawn ~sw
+            (Runc.spawn ~sw ~has_overlays:(entry.overlays <> [])
                ~before_start:(fun id ->
                  (* Set up opentrace on the container's cgroup *)
                  let pid =

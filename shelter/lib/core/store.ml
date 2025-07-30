@@ -179,10 +179,9 @@ let replay exec ({ store = H.Store ((module S), store); ctx } as s) env
     | _ -> assert false (* Because n = 1 *)
 
 let merge { store = H.Store ((module S), store); _ } env branch_name =
-  let branch = S.of_branch (S.repo store) branch_name in
   let message = Fmt.str "merged %s" branch_name in
   let info () = S.Info.v ~message (Eio.Time.now env#clock |> Int64.of_float) in
-  S.merge_into ~into:store ~info branch
+  S.merge_with_branch ~info store branch_name
 
 let with_directory { store = H.Store ((module S), store); _ } env fn =
   let repo = S.repo store in

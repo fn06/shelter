@@ -14,6 +14,29 @@ module Build = struct
   type t = Image of string | Build of cid [@@deriving repr]
 end
 
+module Overlayfs = struct
+  let overlay dir process_mgr ~lowers ~upper =
+    let upper_dir = Filename.dirname upper in
+    let dirs =
+      "-olowerdir=" ^ String.concat ":" lowers ^ ",upperdir=" ^ upper
+      ^ ",workdir=" ^ upper_dir ^ "/workdir"
+    in
+    let cmd =
+      [ "mount"; "-t"; "overlay"; "overlay"; dirs; upper_dir ^ "/merged" ]
+    in
+    (* Save the overlayfs command *)
+    Eio.Path.(
+      save ~create:(`If_missing 0o644)
+        (dir / upper_dir / "overlayfs-cmd")
+        (String.concat " " cmd));
+    Eio.Process.run process_mgr cmd
+
+  let unmount process_mgr upper =
+    let upper_dir = Filename.dirname upper in
+    let cmd = [ "umount"; "-f"; upper_dir ^ "/merged" ] in
+    Eio.Process.run process_mgr cmd
+end
+
 type path = string list
 
 type t = {
@@ -32,6 +55,7 @@ module Datasets : sig
   val snapshot : dataset -> snapshot
   val tools : string -> dataset
   val tool : string -> string -> dataset
+  val rootfs : pool:string -> path:string -> string
 end = struct
   type dataset = string
   type snapshot = string
@@ -42,6 +66,7 @@ end = struct
   let snapshot ds = ds ^ "@snappy"
   let tools pool : dataset = pool / "tools"
   let tool pool path : dataset = tools pool / path
+  let rootfs ~pool ~path = "/" ^ (build pool path / "rootfs")
 end
 
 let with_dataset ?(typ = Zfs.Types.filesystem) t dataset f =
@@ -148,6 +173,8 @@ let fetch t image =
       get_uid_gid ~username Eio.Path.(dir / "rootfs") )
   else (
     create_and_mount t dataset;
+    Eio.Path.mkdir ~perm:0o777 Eio.Path.(dir / "workdir");
+    Eio.Path.mkdir ~perm:0o777 Eio.Path.(dir / "merged");
     let _dir : string = Fetch.get_image ~dir ~proc:t.proc image in
     snapshot t (Datasets.snapshot dataset);
     ( cid,
@@ -155,10 +182,24 @@ let fetch t image =
       get_uid_gid ~username Eio.Path.(dir / "rootfs") ))
 
 module Run = struct
-  let with_build t cid fn =
+  let with_build ~overlays t cid fn =
+    let new_rootfs = Datasets.rootfs ~pool:t.pool ~path:(Cid.to_string cid) in
     let ds = Datasets.build t.pool (Cid.to_string cid) in
-    Fun.protect ~finally:(fun () -> unmount_dataset t ds) @@ fun () ->
+    Fun.protect ~finally:(fun () ->
+        if overlays <> [] then Overlayfs.unmount t.proc new_rootfs;
+        unmount_dataset t ds)
+    @@ fun () ->
     mount_dataset t ds;
+    let overlays =
+      List.map
+        (function
+          | Build.Image _ -> assert false
+          | Build.Build cid ->
+              Datasets.rootfs ~pool:t.pool ~path:(Cid.to_string cid))
+        overlays
+    in
+    if overlays <> [] then
+      Overlayfs.overlay t.fs t.proc ~lowers:overlays ~upper:new_rootfs;
     fn (`Build ("/" ^ (ds :> string)))
 
   let with_tool t cid fn =
@@ -192,7 +233,7 @@ module Run = struct
     let diff = Eio.Path.load output in
     Diff.of_zfs diff
 
-  let with_clone t ~src new_cid output fn =
+  let with_clone ~overlays t ~src new_cid output fn =
     let ds = Datasets.build t.pool (Cid.to_string src) in
     let tgt = Datasets.build t.pool (Cid.to_string new_cid) in
     let src_snap = Datasets.snapshot ds in
@@ -201,7 +242,7 @@ module Run = struct
       (fn (`Exists ("/" ^ (tgt :> string))), diff t src_snap tgt_snap output)
     else (
       clone t src_snap tgt;
-      match with_build t new_cid fn with
+      match with_build ~overlays t new_cid fn with
       | Error _ as v ->
           destroy t tgt;
           (v, [])

@@ -16,7 +16,9 @@ type pre = {
 [@@deriving repr]
 (** Needed for execution *)
 
-type entry = { pre : pre; post : post } [@@deriving repr]
+type entry = { pre : pre; post : post; overlays : Zfs_store.Build.t list }
+[@@deriving repr]
+
 type t = entry list [@@deriving repr]
 
 val pre :
@@ -29,7 +31,7 @@ val pre :
   pre
 
 val post : ?diff:Diff.t -> ?tracelog:Tracelog.t -> int64 -> post
-val v : pre -> post -> entry
+val v : ?overlays:Zfs_store.Build.t list -> pre -> post -> entry
 
 val with_pre :
   ?mode:mode ->

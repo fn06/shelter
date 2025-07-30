@@ -20,7 +20,9 @@ type pre = {
 [@@deriving repr]
 (** Needed for execution *)
 
-type entry = { pre : pre; post : post } [@@deriving repr]
+type entry = { pre : pre; post : post; overlays : Zfs_store.Build.t list }
+[@@deriving repr]
+
 type t = entry list [@@deriving repr]
 
 let pre ?(mode = Void.RW) ?(args = []) ?(env = []) ?(cwd = "/") ?(user = (0, 0))
@@ -30,7 +32,7 @@ let pre ?(mode = Void.RW) ?(args = []) ?(env = []) ?(cwd = "/") ?(user = (0, 0))
 let post ?(diff = []) ?(tracelog = Tracelog.empty) time =
   { time; tracelog; diff }
 
-let v pre post = { pre; post }
+let v ?(overlays = []) pre post = { pre; post; overlays }
 
 let with_pre ?mode ?args ?env ?cwd ?user ?build with_pre =
   {
@@ -49,6 +51,9 @@ let with_post ?diff ?tracelog ?time post =
     tracelog = Option.value ~default:post.tracelog tracelog;
   }
 
+let latest = function [] -> invalid_arg "Empty history!" | x :: _ -> x
+let empty = []
+
 let merge_function ~old t1 t2 =
   (* By the design of the merge function these three histories
      will have a subset of commands that are the same ([old])
@@ -56,20 +61,23 @@ let merge_function ~old t1 t2 =
   match old () with
   | Error _ as e -> e
   | Ok old ->
-      let number_of_shared_cmds =
-        Option.map List.length old |> Option.value ~default:0
+      let shared_cmds = Option.map List.length old |> Option.value ~default:0 in
+      let t2_latest = latest t2 in
+      let t1_latest = latest t1 in
+      (* Drop the shared commands out of t1's history. *)
+      let t1_rest =
+        List.tl t1 |> List.rev
+        |> List.filteri (fun i _ -> i >= shared_cmds)
+        |> List.rev
       in
-      (* let t1_new = *)
-      (*   List.rev t1 |> List.filteri (fun i _ -> i < number_of_shared_cmds) *)
-      (* in *)
-      let t2_new =
-        List.rev t2 |> List.filteri (fun i _ -> i < number_of_shared_cmds)
+      let overlays = t2_latest.pre.build :: t2_latest.overlays in
+      let new_t1_latest =
+        { t1_latest with overlays = overlays @ t1_latest.overlays }
       in
-      Ok (t1 @ t2_new)
+      let merged = (new_t1_latest :: t1_rest) @ t2 in
+      Ok merged
 
 let merge = Irmin.Merge.option @@ Irmin.Merge.v t merge_function
-let latest = function [] -> invalid_arg "Empty history!" | x :: _ -> x
-let empty = []
 
 let pp fmt entries =
   let pp_entry fmt (e : entry) =

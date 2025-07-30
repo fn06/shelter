@@ -36,6 +36,7 @@ struct
 
   let command_file_to_actions cf =
     Eio.Path.load cf |> String.split_on_char '\n'
+    |> List.filter (fun s -> not (String.equal s String.empty))
     |> List.map Engine.action_of_command
 
   let main config env directory command_file =
@@ -48,17 +49,20 @@ struct
         let store = History.Store ((module Store), store) in
         let initial_store = Engine.init env#fs env#process_mgr store in
         let folder (store, exit_code) action =
+          Fmt.pr "%a\n%!"
+            Fmt.(styled (`Fg `Cyan) (Repr.pp Engine.action))
+            action;
           if exit_code <> `Exited 0 then (store, exit_code)
           else
             match Engine.run config env store action with
             | Error (`Process (Eio.Process.Child_error exit_code)) ->
-                Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
+                Fmt.pr "%a\n%!" Eio.Process.pp_status exit_code;
                 (store, exit_code)
             | Error (`Process (Eio.Process.Executable_not_found m)) ->
-                Fmt.epr "shelter: excutable not found %s\n%!" m;
+                Fmt.pr "shelter: excutable not found %s\n%!" m;
                 (store, `Exited 127)
             | Error (`Shell e) ->
-                Fmt.epr "shelter: %a\n%!" Engine.pp_error e;
+                Fmt.pr "shelter: %a\n%!" Engine.pp_error e;
                 (store, `Exited 255)
             | Ok store -> (store, `Exited 0)
         in

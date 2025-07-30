@@ -129,7 +129,7 @@ module Json_config = struct
   }
 
   let make { cwd; argv; hostname; network; user; env; mounts; entrypoint }
-      ~config_dir ~results_dir : Yojson.Safe.t =
+      ~config_dir ~results_dir ~has_overlays : Yojson.Safe.t =
     assert (entrypoint = None);
     let user =
       let uid, gid = user in
@@ -189,7 +189,10 @@ module Json_config = struct
         ( "root",
           `Assoc
             [
-              ("path", `String (results_dir // "rootfs"));
+              ( "path",
+                `String
+                  (results_dir // if has_overlays then "merged" else "rootfs")
+              );
               ("readonly", `Bool false);
             ] );
         ("hostname", `String hostname);
@@ -299,10 +302,12 @@ let to_other_sink_as_well ~other
   end in
   Eio.Resource.T ((), Eio.Flow.Pi.sink (module T))
 
-let spawn ~sw ~before_start log env config dir =
+let spawn ~sw ~before_start ~has_overlays log env config dir =
   let tmp = Filename.temp_dir ~perms:0o700 "shelter-run-" "" in
   let eio_tmp = Eio.Path.(env#fs / tmp) in
-  let json_config = Json_config.make config ~config_dir:tmp ~results_dir:dir in
+  let json_config =
+    Json_config.make config ~config_dir:tmp ~results_dir:dir ~has_overlays
+  in
   Eio.Path.save ~create:(`If_missing 0o644) (eio_tmp / "config.json")
     (Yojson.Safe.pretty_to_string json_config ^ "\n");
   Eio.Path.save ~create:(`If_missing 0o644) (eio_tmp / "hosts")
