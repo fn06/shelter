@@ -25,6 +25,7 @@ let of_csv_line line =
 let open_filter f =
   (not @@ String.starts_with ~prefix:"runc" f.comm)
   && (not @@ String.starts_with ~prefix:"/tmp/shelter-env" f.filename)
+  && (not @@ String.starts_with ~prefix:"/tmp/shelter-status" f.filename)
 
 let of_bpftrace trace =
   Astring.String.cuts ~sep:"\n" trace
@@ -44,3 +45,19 @@ let pp_entry fmt e =
   Fmt.pf fmt "%s %s %s" e.comm mode e.filename
 
 let pp fmt = Fmt.list ~sep:(Fmt.any "\n") pp_entry fmt
+
+let reads t =
+  List.filter_map
+    (fun e ->
+      if has_flag e Flags.o_rdonly || has_flag e Flags.o_rdwr then
+        Some e.filename
+      else None)
+    t
+
+let writes t =
+  List.filter_map
+    (fun e ->
+      if has_flag e Flags.o_wronly || has_flag e Flags.o_rdwr then
+        Some e.filename
+      else None)
+    t

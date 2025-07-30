@@ -1,0 +1,9 @@
+echo hello > hello.txt
+@ session exp1
+cat hello.txt > hello-copy.txt
+@ session main
+echo world >> hello.txt
+@ merge exp1
+read-write inconsistency: {hello.txt} consider using @ replay <br> instead.
+shelter: Merged failed: Recursive merging of common ancestors: read-write inconsistency
+Exited (code 255)

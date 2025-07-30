@@ -118,7 +118,7 @@ let add_cmd env =
   Cmd.v info Term.(const add $ setup_log $ admin $ username)
 
 let () =
-  Eio_main.run @@ fun env ->
+  Eio_posix.run @@ fun env ->
   let doc = "Shelterd" in
   let man =
     [

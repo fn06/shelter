@@ -54,28 +54,51 @@ let with_post ?diff ?tracelog ?time post =
 let latest = function [] -> invalid_arg "Empty history!" | x :: _ -> x
 let empty = []
 
+module Files = Set.Make (String)
+
 let merge_function ~old t1 t2 =
   (* By the design of the merge function these three histories
      will have a subset of commands that are the same ([old])
      and all of the new commands are what is left *)
   match old () with
   | Error _ as e -> e
-  | Ok old ->
+  | Ok old -> (
       let shared_cmds = Option.map List.length old |> Option.value ~default:0 in
       let t2_latest = latest t2 in
       let t1_latest = latest t1 in
+      (* First we check for a merge conflict: does t1 read anything that t2 might
+         have written to! *)
+      let t2_writes =
+        List.concat_map (fun e -> Tracelog.writes e.post.tracelog) t2
+        |> Files.of_list
+      in
       (* Drop the shared commands out of t1's history. *)
       let t1_rest =
-        List.tl t1 |> List.rev
-        |> List.filteri (fun i _ -> i >= shared_cmds)
-        |> List.rev
+        List.rev t1 |> List.filteri (fun i _ -> i >= shared_cmds) |> List.rev
       in
-      let overlays = t2_latest.pre.build :: t2_latest.overlays in
-      let new_t1_latest =
-        { t1_latest with overlays = overlays @ t1_latest.overlays }
+      let t1_reads =
+        List.concat_map (fun e -> Tracelog.reads e.post.tracelog) t1_rest
+        |> Files.of_list
       in
-      let merged = (new_t1_latest :: t1_rest) @ t2 in
-      Ok merged
+      let overlap = Files.inter t2_writes t1_reads in
+      match Files.is_empty overlap with
+      | false ->
+          let s =
+            Fmt.str
+              "read-write inconsistency: %a consider using %@ replay <br> \
+               instead."
+              Fmt.(braces (list ~sep:Fmt.comma string))
+              (Files.to_list overlap)
+          in
+          Fmt.epr "%a\n%!" Fmt.(styled (`Fg `Red) string) s;
+          Irmin.Merge.conflict "read-write inconsistency"
+      | true ->
+          let overlays = t2_latest.pre.build :: t2_latest.overlays in
+          let new_t1_latest =
+            { t1_latest with overlays = overlays @ t1_latest.overlays }
+          in
+          let merged = (new_t1_latest :: t1_rest) @ t2 in
+          Ok merged)
 
 let merge = Irmin.Merge.option @@ Irmin.Merge.v t merge_function
 
