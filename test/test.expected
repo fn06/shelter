@@ -1,0 +1,8 @@
+echo hello > hello.txt
+@ session exp1
+echo exp1 > exp1.txt
+@ session main
+echo world > world.txt
+@ merge exp1
+ls *.txt
+[0;0mexp1.txt[m   [0;0mhello.txt[m  [0;0mworld.txt[m
