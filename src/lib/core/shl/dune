@@ -1,0 +1,9 @@
+(menhir
+ (modules parser))
+
+(ocamllex lexer)
+
+(library
+ (name shl)
+ (public_name shelter.shl)
+ (libraries morbig fmt))

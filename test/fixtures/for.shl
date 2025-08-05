@@ -1,0 +1,14 @@
+for file in **/*.csv {
+     echo hello > hello.txt
+  cat hello.txt
+  for x in y { 
+echo x
+  }
+}
+cat hello.txt
+if condition then {
+  echo hello > hello.txt
+} else {
+  echo something  
+}
+

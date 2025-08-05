@@ -61,19 +61,9 @@ let passthrough =
   let info = Cmd.info "passthrough" in
   Cmd.v info t
 
-let extract_commands =
-  let run cmd_file =
-    Eventloop.run @@ fun env ->
-    let cmd_file = Eio.Path.( / ) env#fs (Option.get cmd_file) in
-    Shelter.Script.to_commands cmd_file |> List.iter (Fmt.pr "%s\n")
-  in
-  let t = Term.(const run $ cmd_file) in
-  let info = Cmd.info "extract" in
-  Cmd.v info t
-
 let cmds =
   let cmd, term, info = main in
-  let cmds = [ cmd; passthrough; extract_commands ] in
+  let cmds = [ cmd; passthrough ] @ Shelter_main.cmds in
   Cmd.group ~default:term info cmds
 
 let () =

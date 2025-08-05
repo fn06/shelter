@@ -16,6 +16,9 @@ module type S = sig
   val config_term : config Cmdliner.Term.t
   (** A cmdliner term for constructing a config *)
 
+  val cmds : unit Cmdliner.Cmd.t list
+  (** Any additional cmdliner commands. *)
+
   type action
   (** An action to run *)
 

@@ -1,0 +1,7 @@
+echo hello > hello.txt
+@ session exp1
+cat hello.txt > hello-copy.txt
+@ session main
+echo world >> hello.txt
+@ merge exp1
+

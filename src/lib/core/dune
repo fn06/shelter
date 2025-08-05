@@ -8,7 +8,7 @@
  (public_name shelter.main)
  (preprocess
   (pps ppx_repr))
- (libraries shelter cid void zfs))
+ (libraries shelter cid void zfs shl))
 
 (rule
  (targets raw_flags.ml)

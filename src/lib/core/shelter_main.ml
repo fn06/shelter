@@ -420,3 +420,27 @@ let run (config : config) env (s : Store.t) = function
         let new_entry, diff = exec config env s entry in
         Store.save_execution s env new_entry diff
       with Eio.Exn.Io (Eio.Process.E e, _) -> Shelter.process_error e)
+
+open Cmdliner
+(** Additional Commands *)
+
+let cmd_file =
+  let doc = "Path to a shelter file (e.g. run.shl)." in
+  Arg.(value & opt (some file) None & info [ "f"; "file" ] ~docv:"FILE" ~doc)
+
+let format_file =
+  let run cmd_file =
+    let src =
+      match cmd_file with
+      | None -> `In_channel In_channel.stdin
+      | Some file ->
+          let file = In_channel.with_open_bin file In_channel.input_all in
+          `String file
+    in
+    Shl.format src
+  in
+  let t = Term.(const run $ cmd_file) in
+  let info = Cmd.info "format" in
+  Cmd.v info t
+
+let cmds = [ format_file ]

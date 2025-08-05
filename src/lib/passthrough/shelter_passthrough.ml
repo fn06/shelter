@@ -7,6 +7,7 @@ let pp_error = Fmt.string
 type config = unit
 
 let config_term = Cmdliner.Term.const ()
+let cmds = []
 
 type action = Exec of string [@@deriving repr]
 
