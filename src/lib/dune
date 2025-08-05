@@ -1,4 +1,16 @@
+; (rule
+;   (target opentrace)
+;   (action
+;     (with-stdout-to opentrace (run echo hello))))
+
 (library
  (name shelter)
  (public_name shelter)
- (libraries cmdliner irmin-git.unix eio.unix eio linenoise void repr morbig))
+ (preprocess
+  (pps ppx_repr))
+ (libraries astring cmdliner irmin cid void zfs shl linenoise irmin-git.unix))
+
+(rule
+ (targets raw_flags.ml)
+ (action
+  (run ./include/discover.exe)))

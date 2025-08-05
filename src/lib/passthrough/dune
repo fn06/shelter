@@ -1,6 +1,0 @@
-(library
- (name shelter_passthrough)
- (public_name shelter.passthrough)
- (preprocess
-  (pps ppx_repr))
- (libraries shelter))

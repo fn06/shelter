@@ -1,13 +1,3 @@
-module History = struct
-  type t = string
-
-  let t = Repr.string
-  let merge = Irmin.Merge.default (Repr.option t)
-end
-
-module Pass = Shelter.Make (History) (Shelter_passthrough)
-module Main = Shelter.Make (Shelter_main.History) (Shelter_main)
-
 let home = Unix.getenv "HOME"
 
 let state_dir fs type' =
@@ -36,9 +26,9 @@ let main =
     Eventloop.run @@ fun env ->
     let cmd_file = Option.map (Eio.Path.( / ) env#fs) cmd_file in
     let dir = state_dir env#fs "shelter" in
-    Main.main config (env :> _ Shelter.Engine.env) dir cmd_file
+    Shelter.main config (env :> _ Shelter.env) dir cmd_file
   in
-  let t = Term.(const run $ Shelter_main.config_term $ cmd_file) in
+  let t = Term.(const run $ Shelter.Engine.config_term $ cmd_file) in
   let man =
     [
       `P
@@ -50,20 +40,9 @@ let main =
   let info = Cmd.info ~man ~doc "main" in
   (Cmd.v info t, t, info)
 
-let passthrough =
-  let run config cmd_file =
-    Eventloop.run @@ fun env ->
-    let cmd_file = Option.map (Eio.Path.( / ) env#fs) cmd_file in
-    let dir = state_dir env#fs "passthrough" in
-    Pass.main config env dir cmd_file
-  in
-  let t = Term.(const run $ Shelter_passthrough.config_term $ cmd_file) in
-  let info = Cmd.info "passthrough" in
-  Cmd.v info t
-
 let cmds =
   let cmd, term, info = main in
-  let cmds = [ cmd; passthrough ] @ Shelter_main.cmds in
+  let cmds = [ cmd ] @ Shelter.Engine.cmds in
   Cmd.group ~default:term info cmds
 
 let () =

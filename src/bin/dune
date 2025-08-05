@@ -2,11 +2,4 @@
  (public_name shelter)
  (package shelter)
  (name main)
- (libraries
-  shelter
-  fmt.tty
-  shelter.main
-  shelter.passthrough
-  eio
-  void
-  shelter.shl))
+ (libraries shelter fmt.tty eio void shelter.shl))

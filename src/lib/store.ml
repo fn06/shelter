@@ -1,8 +1,17 @@
-module H = Shelter.History
+type 'entry irmin =
+  | Store :
+      ((module Irmin.S
+          with type t = 'a
+           and type Schema.Branch.t = string
+           and type Schema.Contents.t = 'entry
+           and type Schema.Path.t = string list
+           and type Schema.Path.step = string)
+      * 'a)
+      -> 'entry irmin
 
 type ctx = Zfs_store.t
 type entry = History.entry
-type store = entry list H.t
+type store = entry list irmin
 
 let history_key = [ "history" ]
 
@@ -12,7 +21,7 @@ let get_store t = t.store
 let get_ctx t = t.ctx
 let v store ctx = { store; ctx }
 
-let history (H.Store ((module S), store) : store) =
+let history (Store ((module S), store) : store) =
   let repo = S.repo store in
   match S.Head.find store with
   | None -> []
@@ -53,15 +62,15 @@ let with_latest ~default s f =
 
 let text c = Fmt.(styled (`Fg c) string)
 
-let sessions { store = H.Store ((module S), store); _ } =
+let sessions { store = Store ((module S), store); _ } =
   S.Branch.list (S.repo store)
 
-let commit ~message clock { store = H.Store ((module S), store); _ } v =
+let commit ~message clock { store = Store ((module S), store); _ } v =
   let info () = S.Info.v ~message (Eio.Time.now clock |> Int64.of_float) in
   S.set_exn ~info store history_key v
 
-let commit_info { store = H.Store ((module S), store); _ } =
-  let history = history (H.Store ((module S), store)) in
+let commit_info { store = Store ((module S), store); _ } =
+  let history = history (Store ((module S), store)) in
   let repo = S.repo store in
   List.fold_left
     (fun acc (commit, _) ->
@@ -75,7 +84,7 @@ let commit_info { store = H.Store ((module S), store); _ } =
     [] history
 
 (* Reset the head of the current session by one commit *)
-let reset_hard ({ store = H.Store ((module S), store); _ } as s) =
+let reset_hard ({ store = Store ((module S), store); _ } as s) =
   match
     List.filter_map (S.Commit.of_hash (S.repo store))
     @@ S.Commit.parents (S.Head.get store)
@@ -85,8 +94,8 @@ let reset_hard ({ store = H.Store ((module S), store); _ } as s) =
       S.Head.set store p;
       s
 
-let save_execution ({ store = H.Store ((module S), store); _ } as s) env
-    new_entry diff =
+let save_execution ({ store = Store ((module S), store); _ } as s) env new_entry
+    diff =
   match new_entry with
   | Error e -> Error e
   | Ok (`Reset c) -> (
@@ -117,7 +126,7 @@ let save_execution ({ store = H.Store ((module S), store); _ } as s) env
           hash);
       Ok s
 
-let replay exec ({ store = H.Store ((module S), store); ctx } as s) env
+let replay exec ({ store = Store ((module S), store); ctx } as s) env
     existing_branch =
   let seshes = sessions s in
   if not (List.exists (String.equal existing_branch) seshes) then (
@@ -140,11 +149,9 @@ let replay exec ({ store = H.Store ((module S), store); ctx } as s) env
         in
         let commits_to_apply = collect all_commits in
         match commits_to_apply with
-        | [] -> Shelter.shell_error (`Msg "no commits")
+        | [] -> Error.shell_error (`Msg "no commits")
         | (h, first) :: rest ->
-            let _, last_other =
-              history (H.Store ((module S), onto)) |> List.hd
-            in
+            let _, last_other = history (Store ((module S), onto)) |> List.hd in
             let first = List.hd first in
             let last_other_head = List.hd last_other in
             let new_first =
@@ -172,18 +179,18 @@ let replay exec ({ store = H.Store ((module S), store); ctx } as s) env
                       save_execution
                         { store = new_store; ctx = new_ctx }
                         env new_entry diff)
-                (Ok { store = H.Store ((module S), store); ctx })
+                (Ok { store = Store ((module S), store); ctx })
                 commits_to_apply
             in
             res)
     | _ -> assert false (* Because n = 1 *)
 
-let merge { store = H.Store ((module S), store); _ } env branch_name =
+let merge { store = Store ((module S), store); _ } env branch_name =
   let message = Fmt.str "merged %s" branch_name in
   let info () = S.Info.v ~message (Eio.Time.now env#clock |> Int64.of_float) in
   S.merge_with_branch ~info store branch_name
 
-let with_directory { store = H.Store ((module S), store); _ } env fn =
+let with_directory { store = Store ((module S), store); _ } env fn =
   let repo = S.repo store in
   let config = S.Repo.config repo in
   match Irmin.Backend.Conf.find_root config with
@@ -197,7 +204,7 @@ let save_branch_name s env ~name =
 let which_branch_from_file s env =
   with_directory s env @@ fun dir -> Eio.Path.(load (dir / "runtime-branch"))
 
-let which_branch ({ store = H.Store ((module S), store); _ } as s) env =
+let which_branch ({ store = Store ((module S), store); _ } as s) env =
   let branches = sessions s in
   let repo = S.repo store in
   let heads = List.map (fun b -> (S.Branch.find repo b, b)) branches in
@@ -222,12 +229,12 @@ let which_branch ({ store = H.Store ((module S), store); _ } as s) env =
       (head_hash, Some (which_branch_from_file s env))
 
 (* New sessions *)
-let set_session env ({ store = H.Store ((module S), store); ctx } as s) m =
+let set_session env ({ store = Store ((module S), store); ctx } as s) m =
   let sesh = S.of_branch (S.repo store) m in
   save_branch_name s env ~name:m;
-  { store = H.Store ((module S), sesh); ctx }
+  { store = Store ((module S), sesh); ctx }
 
-let fork env ({ store = H.Store ((module S), session); ctx } as s) ~new_branch =
+let fork env ({ store = Store ((module S), session); ctx } as s) ~new_branch =
   let repo = S.repo session in
   match (S.Head.find session, S.Branch.find repo new_branch) with
   | _, Some _ ->
@@ -237,5 +244,5 @@ let fork env ({ store = H.Store ((module S), session); ctx } as s) ~new_branch =
       let new_store = S.of_branch (S.repo session) new_branch in
       S.Branch.set repo new_branch commit;
       save_branch_name s env ~name:new_branch;
-      let store = H.Store ((module S), new_store) in
+      let store = Store ((module S), new_store) in
       Ok { store; ctx }
