@@ -12,16 +12,17 @@ let print_token = function
   | RPAREN -> print_endline "RPAREN"
   | LCURLY -> print_endline "LCURLY"
   | RCURLY -> print_endline "RCURLY"
+  | LSQUARE -> print_endline "LSQUARE"
+  | RSQUARE -> print_endline "RSQUARE"
+  | COMMA -> print_endline "COMMA"
   | EOF -> print_endline "EOF"
   | WORD s -> Printf.printf "WORD(%s)\n" s
   | LINE s -> Printf.printf "LINE(%s)\n" s
-  | DOLLAR -> print_endline "DOLLAR"
   | NEWLINE -> print_endline "NEWLINE"
-  | SEMICOLON -> print_endline "SEMICOLON"
 }
 
 let white = [' ' '\t']+
-let word = ['a'-'z' 'A'-'Z' '0'-'9' '_' '.' '*' '/' '<' '>']+
+let word = ['a'-'z' 'A'-'Z' '0'-'9' '_' '.' '*' '/' '<' '>' '"' '-' '$' '{' '}']+
 let line = (word | white)+
 let newline = '\r' | '\n' | "\r\n"
 
@@ -34,7 +35,6 @@ rule read =
   }
   | newline  { Lexing.new_line lexbuf; NEWLINE }
   | white    { read lexbuf }
-  | ';'      { SEMICOLON }
   | "for"    { FOR }
   | "in"     { IN }
   | "if"     { IF }
@@ -44,6 +44,9 @@ rule read =
   | '('      { LPAREN }
   | '{'      { LCURLY }
   | '}'      { RCURLY }
+  | ']'      { RSQUARE }
+  | '['      { LSQUARE }
+  | ','      { COMMA }
   | word as w { WORD w }
   | eof      { EOF }
   (* | _        { read_line (Lexing.lexeme lexbuf) lexbuf } *)

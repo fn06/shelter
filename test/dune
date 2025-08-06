@@ -1,0 +1,4 @@
+(cram
+ (deps
+  %{bin:shelter}
+  (source_tree fixtures)))
