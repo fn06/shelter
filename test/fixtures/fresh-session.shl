@@ -1,0 +1,4 @@
+echo hello > hello.txt
+@ session --image=alpine br1
+echo world > world.txt
+ls *.txt

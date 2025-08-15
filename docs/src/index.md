@@ -18,3 +18,8 @@ follow the [documentation](shelter-0004).
 
 \transclude{shelter-0001}
 ```
+
+For reference documentation, we have:
+
+ - The [Shelterfile syntax](shelterfile-syntax)
+ - The available [meta-commands](shelter-0002)

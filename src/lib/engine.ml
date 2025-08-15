@@ -15,62 +15,8 @@ let config_term = Config.cmdliner
 
 type contents = History.t
 
-type action =
-  (* Change modes *)
-  | Set_mode of History.mode
-  (* Fork a new branch from an existing one,
-     or switch to a branch if it exists *)
-  | Set_session of string
-  (* Run a command *)
-  | Exec of string list
-  (* Undo the last command *)
-  | Undo
-  (* Replay the current branch onto another *)
-  | Replay of string
-  (* Merge one branch into another *)
-  | Merge of string
-  (* Display info *)
-  | Info of [ `Current | `History ]
-  (* Error state *)
-  | Unknown of string list
-[@@deriving repr]
-
-let pp_action fmt = function
-  | Set_mode R -> Fmt.pf fmt "%@ mode r"
-  | Set_mode RW -> Fmt.pf fmt "%@ mode rw"
-  | Set_session n -> Fmt.pf fmt "%@ session %s" n
-  | Undo -> Fmt.string fmt "%@ undo"
-  | Replay onto -> Fmt.pf fmt "%@ replay %s" onto
-  | Merge into -> Fmt.pf fmt "%@ merge %s" into
-  | Info `Current -> Fmt.pf fmt "%@ info"
-  | Info `History -> Fmt.pf fmt "%@ history"
-  | Exec exec -> Fmt.(list ~sep:(Fmt.any " ") string) fmt exec
-  | Unknown u -> Fmt.pf fmt "unknown: %a" Fmt.(list ~sep:(Fmt.any " ") string) u
-
-let action_t = Repr.like ~pp:pp_action action_t
-
-let split_and_remove_empty s =
-  String.split_on_char ' ' s |> List.filter (fun v -> not (String.equal "" v))
-
 let () = Fmt.set_style_renderer Format.str_formatter `Ansi_tty
 let text c = Fmt.(styled (`Fg c) string)
-let action = action_t
-
-let shelter_action = function
-  | "mode" :: [ "r" ] -> Set_mode R
-  | "mode" :: [ "rw" ] -> Set_mode RW
-  | "session" :: [ m ] -> Set_session m
-  | "replay" :: [ onto ] -> Replay onto
-  | "merge" :: [ into ] -> Merge into
-  | [ "info" ] -> Info `Current
-  | [ "undo" ] -> Undo
-  | [ "history" ] -> Info `History
-  | other -> Unknown other
-
-let action_of_command cmd =
-  match split_and_remove_empty cmd with
-  | "@" :: rest -> shelter_action rest
-  | args -> Exec args
 
 let prompt env status store =
   let head, sesh = Store.which_branch store env in
@@ -338,25 +284,37 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
       else Error.process_error (Eio.Process.Child_error (`Exited status))
 
 let run (config : config) env (s : Store.t) = function
-  | Set_mode mode ->
+  | Action.Set_mode mode ->
       Store.with_latest ~default:(fun _ -> Ok s) (Store.get_store s)
       @@ fun contents ->
       let entry = History.latest contents in
       Store.commit ~message:"mode change" env#clock s
         ({ entry with pre = { entry.pre with mode } } :: contents);
       Ok s
-  | Set_session m -> (
+  | Session { name; image } -> (
       (* Either set the session if the branch exists or create a new branch
          from the latest commit of the current branch *)
       let sessions = Store.sessions s in
-      match List.exists (String.equal m) sessions with
-      | true -> Ok (Store.set_session env s m)
+      match List.exists (String.equal name) sessions with
+      | true -> Ok (Store.set_session env s name)
       | false -> (
-          match Store.fork env s ~new_branch:m with
+          let detach = Option.is_some image in
+          match Store.fork ~detach env s ~new_branch:name with
           | Error (`Msg err) ->
               Fmt.pr "[fork]: %a\n%!" (text `Red) err;
               Ok s
-          | Ok store -> Ok store))
+          | Ok store -> (
+              match image with
+              | None -> Ok s
+              | Some img ->
+                  (* We need to pull the image and set everything up for this
+                 detached, new session *)
+                  let pre = History.pre (Zfs_store.Build.Image img) in
+                  let post = History.post 0L in
+                  let entry = History.v pre post in
+                  Store.commit ~message:(Fmt.str "from %s" img) env#clock store
+                    [ entry ];
+                  Ok store)))
   | Unknown args ->
       Fmt.epr "%a" (text `Red) "Unknown Shelter Action\n";
       Error.shell_error (`Msg (String.concat " " args))
@@ -418,6 +376,21 @@ let run (config : config) env (s : Store.t) = function
       try
         let new_entry, diff = exec config env s entry in
         Store.save_execution s env new_entry diff
+      with Eio.Exn.Io (Eio.Process.E e, _) -> Error.process_error e)
+  | Check command -> (
+      let entry =
+        Store.with_latest
+          ~default:(fun () ->
+            let pre = History.(pre (Image config.image) ~args:command) in
+            let post = History.post 0L in
+            [ History.v pre post ])
+          (Store.get_store s) Fun.id
+        |> History.latest
+      in
+      let entry = { entry with pre = { entry.pre with args = command } } in
+      try
+        let new_entry, _diff = exec config env s entry in
+        Result.map (fun _ -> s) new_entry
       with Eio.Exn.Io (Eio.Process.E e, _) -> Error.process_error e)
 
 open Cmdliner

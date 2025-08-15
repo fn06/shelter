@@ -17,12 +17,12 @@ let print_token = function
   | COMMA -> print_endline "COMMA"
   | EOF -> print_endline "EOF"
   | WORD s -> Printf.printf "WORD(%s)\n" s
-  | LINE s -> Printf.printf "LINE(%s)\n" s
   | NEWLINE -> print_endline "NEWLINE"
+  | AT -> print_endline "@"
 }
 
 let white = [' ' '\t']+
-let word = ['a'-'z' 'A'-'Z' '0'-'9' '_' '.' '*' '/' '<' '>' '"' '-' '$' '{' '}']+
+let word = ['a'-'z' 'A'-'Z' '0'-'9' '_' '.' '*' '/' '<' '>' '"' '-' '$' '{' '}' '!' ':' '&' '#' '=']+
 let line = (word | white)+
 let newline = '\r' | '\n' | "\r\n"
 
@@ -47,6 +47,7 @@ rule read =
   | ']'      { RSQUARE }
   | '['      { LSQUARE }
   | ','      { COMMA }
+  | '@'      { AT }
   | word as w { WORD w }
   | eof      { EOF }
   (* | _        { read_line (Lexing.lexeme lexbuf) lexbuf } *)

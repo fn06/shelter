@@ -27,7 +27,7 @@ merged after the successful execution of each branch of the loop.
 There are also conditionals too.
 
   $ cat > if.shl << EOF
-  > if exit 0 then {
+  > if (exit 0) then {
   >   echo "exited 0"
   > } else {
   >   echo "exited nonzero"

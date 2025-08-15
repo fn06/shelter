@@ -1,14 +1,6 @@
-for file in **/*.csv {
-     echo hello > hello.txt
-  cat hello.txt
-  for x in y { 
-echo x
-  }
+echo world > world.txt
+for file in [ a.txt, b.txt ] {
+  echo hello > #file
 }
-cat hello.txt
-if condition then {
-  echo hello > hello.txt
-} else {
-  echo something  
-}
+ls -la *.txt
 

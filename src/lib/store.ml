@@ -234,7 +234,8 @@ let set_session env ({ store = Store ((module S), store); ctx } as s) m =
   save_branch_name s env ~name:m;
   { store = Store ((module S), sesh); ctx }
 
-let fork env ({ store = Store ((module S), session); ctx } as s) ~new_branch =
+let fork ?(detach = false) env
+    ({ store = Store ((module S), session); ctx } as s) ~new_branch =
   let repo = S.repo session in
   match (S.Head.find session, S.Branch.find repo new_branch) with
   | _, Some _ ->
@@ -242,7 +243,7 @@ let fork env ({ store = Store ((module S), session); ctx } as s) ~new_branch =
   | None, _ -> Error (`Msg "Current branch needs at least one commit")
   | Some commit, None ->
       let new_store = S.of_branch (S.repo session) new_branch in
-      S.Branch.set repo new_branch commit;
+      if not detach then S.Branch.set repo new_branch commit;
       save_branch_name s env ~name:new_branch;
       let store = Store ((module S), new_store) in
       Ok { store; ctx }

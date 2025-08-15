@@ -10,23 +10,27 @@
 %token LSQUARE RSQUARE
 %token COMMA
 %token IF THEN ELSE
+%token AT
 %token FOR IN
 %token NEWLINE
 %token <string> WORD
-%token <string> LINE
 %token EOF
 
-%start <Ast.t> expr 
+%start <Ast.t> expr
+
 %%
 
+%inline located(X):
+  x = X { with_loc $startpos $endpos x }
 
 command:
   | l = line { l }
 
 single_expr:
   | FOR; for_ = WORD; IN; in_ = iterable; LCURLY; NEWLINE; b = body              { make_for ~for_ ~in_ b }
-  | IF; if_ = command; THEN; LCURLY; then_ = body; ELSE; LCURLY; else_ = body   { make_if_then_else ~if_ ~then_ ~else_ }
+  | IF; LPAREN; if_ = located(command); RPAREN; THEN; LCURLY; then_ = body; ELSE; LCURLY; else_ = body   { make_if_then_else ~if_ ~then_ ~else_ () }
   | action = command { make_action action }
+  | AT; meta = command { make_meta meta }
 
 line:
   | { "" }

@@ -1,0 +1,8 @@
+if (echo "Hmmm") then {
+  echo "Then"
+  echo "True!" > out.txt
+} else {
+  echo "Else"
+  echo "False!" > out.txt
+}
+echo "out.txt says:" && cat out.txt
