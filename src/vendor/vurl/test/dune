@@ -1,0 +1,24 @@
+(test
+ (name test)
+ (modules test)
+ (libraries alcotest vurl))
+
+(executable
+ (name schema)
+ (modules schema)
+ (libraries vurl))
+
+(rule
+ (deps ./schema.exe)
+ (mode promote)
+ (targets vurl.json)
+ (action
+  (with-stdout-to
+   vurl.json
+   (run ./schema.exe))))
+
+(rule
+ (alias runtest)
+ (deps %{bin:check-jsonschema} vurl.json schema.json)
+ (action
+  (run check-jsonschema --schemafile=schema.json vurl.json)))

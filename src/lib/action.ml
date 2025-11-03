@@ -37,17 +37,6 @@ let pp fmt = function
 
 let t = Repr.like ~pp t
 
-(* let meta_command = function *)
-(*   | "mode" :: [ "r" ] -> Set_mode R *)
-(*   | "mode" :: [ "rw" ] -> Set_mode RW *)
-(*   | "session" :: [ m ] -> Set_session m *)
-(*   | "replay" :: [ onto ] -> Replay onto *)
-(*   | "merge" :: [ into ] -> Merge into *)
-(*   | [ "info" ] -> Info `Current *)
-(*   | [ "undo" ] -> Undo *)
-(*   | [ "history" ] -> Info `History *)
-(*   | other -> Unknown other *)
-
 let split_and_remove_empty s =
   String.split_on_char ' ' s |> List.filter (fun s -> not (String.equal s ""))
 

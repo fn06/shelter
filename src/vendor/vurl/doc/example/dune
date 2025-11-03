@@ -1,0 +1,13 @@
+(executable
+ (name vurl_example)
+ (package vurl-eio)
+ (public_name vurl-examples)
+ (libraries
+  eio_main
+  cmdliner
+  fmt.cli
+  logs.cli
+  fmt.tty
+  vurl-eio
+  mirage-crypto-rng-eio
+  progress))

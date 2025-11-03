@@ -1,0 +1,7 @@
+_build
+data
+_data
+.vscode
+
+example.cap
+secrets.pem

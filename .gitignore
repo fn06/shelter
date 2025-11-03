@@ -1,7 +1,4 @@
 _build
-*.sh
-*.sjson
-*.json
 
 docs/trees
 docs/output

@@ -79,7 +79,7 @@ let daemon env =
   let info = Cmd.info ~man "daemon" ~doc in
   let daemon () capnp =
     let make_sturdy = Capnp_rpc_unix.Vat_config.sturdy_uri capnp in
-    let connect = Obj.magic () in
+    let connect = failwith "TODO" in
     let load ~validate:_ ~sturdy_ref =
       let sr = Capnp_rpc.Sturdy_ref.cast sturdy_ref in
       Restorer.grant (User.v sr connect)

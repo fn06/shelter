@@ -1,0 +1,33 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "Vurl with segments",
+	"type": "object",
+	"properties": {
+		"intentional_uri": {
+			"type": ["string"],
+			"description": "The original intentional URI."
+		},
+		"segments": {
+			"type":"array",
+			"description": "Resolution results for an intentional URI.",
+			"items": {
+				"type": "object",
+                "properties": {
+                    "uri": {
+                        "type": ["string"],
+                        "description": "The URI for this resolution step"
+                    },
+                    "cid": {
+                        "type": ["string"],
+                        "description": "The content identifier of the blob of data"
+                    }
+                }
+			},
+			"minItems": 1
+		}
+	},
+	"required": [
+		"intentional_uri",
+		"segments"
+	]
+}

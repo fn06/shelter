@@ -1,0 +1,7 @@
+pin-depends: [
+  # Eio port of capnp
+  [ "capnp-rpc.dev" "git+https://github.com/patricoferris/capnp-rpc#68eb7915a5c747791c8fa074e155d0571ed9b178" ]
+  [ "capnp-rpc-lwt.dev" "git+https://github.com/patricoferris/capnp-rpc#68eb7915a5c747791c8fa074e155d0571ed9b178" ]
+  [ "capnp-rpc-net.dev" "git+https://github.com/patricoferris/capnp-rpc#68eb7915a5c747791c8fa074e155d0571ed9b178" ]
+  [ "capnp-rpc-unix.dev" "git+https://github.com/patricoferris/capnp-rpc#68eb7915a5c747791c8fa074e155d0571ed9b178" ]
+]

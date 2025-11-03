@@ -1,6 +1,6 @@
 echo world > world.txt
-for file in [ a.txt, b.txt ] {
-  echo hello > #file
+for file in [ a.txt, b.txt, c.txt ] {
+  echo #file > #file
 }
 ls -la *.txt
 

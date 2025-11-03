@@ -1,0 +1,4 @@
+(library
+ (name vurl_resolver)
+ (public_name vurl.resolver)
+ (libraries vurl))

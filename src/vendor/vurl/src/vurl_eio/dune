@@ -1,0 +1,16 @@
+(library
+ (name vurl_eio)
+ (public_name vurl-eio)
+ (libraries
+  eio
+  vurl
+  vurl.resolver
+  progress
+  cohttp-eio
+  tls-eio
+  capnp-rpc-unix
+  http-cookie
+  yojson
+  lwt_eio
+  ca-certs
+  git-unix))

@@ -4,8 +4,10 @@
   - By way of bpftrace.
 - [x] Simple merge behaviour
 - [x] With read-deps implement a merge function.
-- [ ] Finish support for execution from file
-- [ ] Add parallel loops to file support.
+- [x] Finish support for execution from file
+- [x] Add parallel loops to file support.
+- [ ] Support conditional execution.
+- [ ] Add proper debug logs.
 
 ## Bugs
 

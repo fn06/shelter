@@ -305,7 +305,7 @@ let run (config : config) env (s : Store.t) = function
               Ok s
           | Ok store -> (
               match image with
-              | None -> Ok s
+              | None -> Ok store
               | Some img ->
                   (* We need to pull the image and set everything up for this
                  detached, new session *)
