@@ -1,8 +1,9 @@
-if (echo "Hmmm") then {
+echo "Conditions do not get saved!" > out.txt
+if (echo "Hmmm" && echo "as you can see" > out.txt) then {
   echo "Then"
-  echo "True!" > out.txt
+  echo "True!" >> out.txt
 } else {
   echo "Else"
-  echo "False!" > out.txt
+  echo "False!" >> out.txt
 }
 echo "out.txt says:" && cat out.txt

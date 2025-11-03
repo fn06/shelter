@@ -1,6 +1,12 @@
 #!/bin/bash
 
-files=("merge" "failed-merge" "fresh-session" "for")
+files=("merge" "failed-merge" "fresh-session" "for" "if")
+
+if [ $# -ge 2 ]; then
+	files=("${@:2}")
+else
+	files=("${files[@]}")
+fi
 
 function run_test {
   echo ">>>>>>>>>>>>>>>>> Running test for $1"
