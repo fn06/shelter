@@ -26,6 +26,9 @@ let run config env store =
           match Action.of_string input with
           | None -> loop store (`Exited 0)
           | Some action -> (
+              let _ : (unit, string) result =
+                LNoise.history_add (Fmt.str "%a" Action.pp action)
+              in
               match Engine.run config env store action with
               | Error (`Process (Eio.Process.Child_error exit_code)) ->
                   Fmt.epr "%a\n%!" Eio.Process.pp_status exit_code;
@@ -129,9 +132,15 @@ and execute env
     ((ctx, store, exit_code) :
       string Context.t * Store.t * Eio.Process.exit_status) run = function
   | [] -> (ctx, store, exit_code)
-  | e :: es ->
-      let result = execute_ast env (ctx, store, exit_code) run e in
-      execute env result run es
+  | e :: es -> (
+      match execute_ast env (ctx, store, exit_code) run e with
+      | (_, _, `Exited 0) as result -> execute env result run es
+      | _, _, `Exited n ->
+          Fmt.epr "Failed (%i) executing: %a\n%!" n Shl.Ast.pp [ e ];
+          exit n
+      | _, _, `Signaled n ->
+          Fmt.epr "Signaled %i\n%!" n;
+          exit n)
 
 let main config env directory shl_file =
   let conf = Irmin_git.config (Eio.Path.native_exn directory) in
@@ -139,7 +148,8 @@ let main config env directory shl_file =
   let store = S.main repo in
   match shl_file with
   | Some file -> (
-      let ast = Shl.of_src (`String (Eio.Path.load file)) in
+      let filename = Eio.Path.native_exn file |> Filename.basename in
+      let ast = Shl.of_src ~filename (`String (Eio.Path.load file)) in
       let store = Store.Store ((module S), store) in
       let initial_store = Engine.init env#fs env#process_mgr store in
       let _cxt, _store, exit_code =

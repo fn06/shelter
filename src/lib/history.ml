@@ -13,6 +13,7 @@ type pre = {
   mode : mode;
   build : Zfs_store.Build.t;
   args : string list;
+  shell : string;
   env : string list;
   cwd : string;
   user : int * int;
@@ -26,15 +27,15 @@ type entry = { pre : pre; post : post; overlays : Zfs_store.Build.t list }
 type t = entry list [@@deriving repr]
 
 let pre ?(mode = Void.RW) ?(args = []) ?(env = []) ?(cwd = "/") ?(user = (0, 0))
-    build =
-  { mode; build; args; env; cwd; user }
+    ?(shell = "/bin/sh") build =
+  { mode; build; args; env; cwd; user; shell }
 
 let post ?(diff = []) ?(tracelog = Tracelog.empty) time =
   { time; tracelog; diff }
 
 let v ?(overlays = []) pre post = { pre; post; overlays }
 
-let with_pre ?mode ?args ?env ?cwd ?user ?build with_pre =
+let with_pre ?mode ?args ?env ?cwd ?user ?shell ?build with_pre =
   {
     mode = Option.value ~default:with_pre.mode mode;
     args = Option.value ~default:with_pre.args args;
@@ -42,6 +43,7 @@ let with_pre ?mode ?args ?env ?cwd ?user ?build with_pre =
     cwd = Option.value ~default:with_pre.cwd cwd;
     user = Option.value ~default:with_pre.user user;
     build = Option.value ~default:with_pre.build build;
+    shell = Option.value ~default:with_pre.shell shell;
   }
 
 let with_post ?diff ?tracelog ?time post =

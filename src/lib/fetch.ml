@@ -26,6 +26,21 @@ let get_env proc image =
       image;
     ]
   |> String.split_on_char '\x00'
+  |> List.map String.trim
+  |> List.filter (Fun.compose not Astring.String.is_empty)
+
+let get_cmd proc image =
+  Eio.Process.parse_out proc Eio.Buf_read.take_all
+    [
+      "docker";
+      "image";
+      "inspect";
+      "--format";
+      {|{{range .Config.Cmd}}{{print . "\x00"}}{{end}}|};
+      "--";
+      image;
+    ]
+  |> String.split_on_char '\x00'
 
 let get_image ~dir ~proc image =
   let container_id =

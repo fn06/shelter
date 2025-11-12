@@ -83,8 +83,8 @@ let commit_info { store = Store ((module S), store); _ } =
       (String.sub hash 0 7, info) :: acc)
     [] history
 
-(* Reset the head of the current session by one commit *)
-let reset_hard ({ store = Store ((module S), store); _ } as s) =
+(* TODO: We could improve performance by not setting the HEAD each time. *)
+let rec reset_hard_aux n ({ store = Store ((module S), store); _ } as s) =
   match
     List.filter_map (S.Commit.of_hash (S.repo store))
     @@ S.Commit.parents (S.Head.get store)
@@ -92,7 +92,9 @@ let reset_hard ({ store = Store ((module S), store); _ } as s) =
   | [] -> s
   | p :: _ ->
       S.Head.set store p;
-      s
+      if n <= 1 then s else reset_hard_aux (n - 1) s
+
+let reset_hard ?(n = 1) s = reset_hard_aux n s
 
 let save_execution ({ store = Store ((module S), store); _ } as s) env new_entry
     diff =
@@ -240,7 +242,11 @@ let fork ?(detach = false) env
   match (S.Head.find session, S.Branch.find repo new_branch) with
   | _, Some _ ->
       Error (`Msg (new_branch ^ " already exists, try @ session " ^ new_branch))
-  | None, _ -> Error (`Msg "Current branch needs at least one commit")
+  | None, _ ->
+      let new_store = S.of_branch (S.repo session) new_branch in
+      save_branch_name s env ~name:new_branch;
+      let store = Store ((module S), new_store) in
+      Ok { store; ctx }
   | Some commit, None ->
       let new_store = S.of_branch (S.repo session) new_branch in
       if not detach then S.Branch.set repo new_branch commit;

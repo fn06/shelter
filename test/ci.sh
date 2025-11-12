@@ -1,6 +1,6 @@
 #!/bin/bash
 
-files=("merge" "failed-merge" "fresh-session" "for" "if")
+files=("merge" "failed-merge" "fresh-session" "for" "if" "undo")
 
 if [ $# -ge 2 ]; then
 	files=("${@:2}")

@@ -3,7 +3,7 @@ type t = {
   no_ebpf : bool;
   no_runc : bool;
   image : string;
-  shell : string;
+  shell : string option;
 }
 
 let cmdliner =
@@ -21,8 +21,8 @@ let cmdliner =
     Arg.(value & opt string "alpine" & info [ "image" ] ~doc)
   in
   let shell =
-    let doc = "Path to the shell (e.g. /bin/ash)" in
-    Arg.(value & opt string "/bin/ash" & info [ "shell" ] ~doc)
+    let doc = "Override path to the shell (e.g. /bin/ash)" in
+    Arg.(value & opt (some string) None & info [ "shell" ] ~doc)
   in
   let no_runc =
     let doc = "Disable RUNC and use Void processes." in

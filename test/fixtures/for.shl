@@ -2,5 +2,5 @@ echo world > world.txt
 for file in [ a.txt, b.txt, c.txt ] {
   echo #file > #file
 }
-ls -la *.txt
+ls *.txt
 

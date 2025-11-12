@@ -17,6 +17,10 @@ type contents = History.t
 
 let () = Fmt.set_style_renderer Format.str_formatter `Ansi_tty
 let text c = Fmt.(styled (`Fg c) string)
+let pp_commit fmt (hash, msg) = Fmt.pf fmt "[%a]: %s" (text `Yellow) hash msg
+
+let pp_cid fmt cid =
+  Fmt.pf fmt "%a" (text `Yellow) (String.sub (Cid.to_string cid) 0 12 ^ "...")
 
 let prompt env status store =
   let head, sesh = Store.which_branch store env in
@@ -65,16 +69,22 @@ let init fs proc s =
    - TODO: pretty confusing that we `entry` to build from and also as the
      thing we are building (e.g. the build field and the args field... *)
 let exec (config : config) env (s : Store.t) (entry : History.entry) =
-  let build, environ, (uid, gid) =
+  let build, environ, shell, (uid, gid) =
     match entry.pre.build with
     | Zfs_store.Build.Image img ->
-        let build, env, user = Zfs_store.fetch s.ctx img in
-        (build, env, Option.value ~default:(0, 0) user)
-    | Zfs_store.Build.Build cid -> (cid, entry.pre.env, entry.pre.user)
+        let build, env, cmd, user = Zfs_store.fetch s.ctx img in
+        ( build,
+          env,
+          String.concat " " cmd |> String.trim,
+          Option.value ~default:(0, 0) user )
+    | Zfs_store.Build.Build cid ->
+        (cid, entry.pre.env, entry.pre.shell, entry.pre.user)
   in
   let command = entry.pre.args in
   let hash_entry =
-    let pre = History.with_pre ~build:(Build build) entry.pre in
+    let pre =
+      History.with_pre ~env:environ ~build:(Build build) ~shell entry.pre
+    in
     History.v pre entry.post
   in
   (* Store things under History.pre, this makes it possible to rediscover
@@ -99,6 +109,9 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
   with_rootfs @@ function
   | `Exists path ->
       (* Copy the stdout log to stdout *)
+      Fmt.epr "[%a] %a\n%!" pp_cid new_cid
+        (Fmt.styled (`Fg `Cyan) @@ Fmt.(list ~sep:Fmt.(any " ") string))
+        entry.pre.args;
       let () =
         Eio.Path.(with_open_in (env#fs / (path :> string) / "log")) @@ fun ic ->
         Eio.Flow.copy ic env#stdout
@@ -107,6 +120,9 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
       Ok (`Reset c)
   | `Build rootfs ->
       let trace_log = Buffer.create 128 in
+      let shell =
+        match config.shell with Some shell -> shell | None -> shell
+      in
       let spawn sw log =
         if config.no_runc then
           (* Experiment Void Process *)
@@ -118,7 +134,7 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
             (* TODO: Support UIDs |> Void.uid 1000 *)
             |> Void.exec ~env:environ
                  [
-                   config.shell;
+                   shell;
                    "-c";
                    String.concat " " command ^ " && env > /tmp/shelter-env";
                  ]
@@ -132,7 +148,7 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
                 argv =
                   (* TODO: Workaround for exit_status pain with runc start *)
                   [
-                    config.shell;
+                    shell;
                     "-c";
                     Fmt.str "(%s)" (String.concat " " command)
                     ^ "; status=$?; echo $status > /tmp/shelter-status; env > \
@@ -141,7 +157,7 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
                 hostname = "builder";
                 network = [ "host" ];
                 user = (uid, gid);
-                env = entry.pre.env;
+                env = environ;
                 mounts = [];
                 entrypoint = None;
               }
@@ -272,13 +288,14 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
         let post = History.with_post ~time ~tracelog hash_entry.post in
         if entry.pre.mode = RW then
           let pre =
-            History.with_pre ~build:(Build new_cid) ~env:environ ~cwd
+            History.with_pre ~build:(Build new_cid) ~env:environ ~cwd ~shell
               ~user:(uid, gid) hash_entry.pre
           in
           Ok (`Entry (History.v pre post, rootfs))
         else
           let pre =
-            History.with_pre ~env:environ ~cwd ~user:(uid, gid) hash_entry.pre
+            History.with_pre ~env:environ ~cwd ~user:(uid, gid) ~shell
+              hash_entry.pre
           in
           Ok (`Entry (History.v pre post, rootfs)))
       else Error.process_error (Eio.Process.Child_error (`Exited status))
@@ -291,10 +308,24 @@ let run (config : config) env (s : Store.t) = function
       Store.commit ~message:"mode change" env#clock s
         ({ entry with pre = { entry.pre with mode } } :: contents);
       Ok s
-  | Session { name; image } -> (
+  | Session None ->
+      let sessions = Store.sessions s in
+      Fmt.pr "%a\n%!" Fmt.(list ~sep:(Fmt.any "\n") string) sessions;
+      Ok s
+  | Session (Some v) -> (
       (* Either set the session if the branch exists or create a new branch
          from the latest commit of the current branch *)
       let sessions = Store.sessions s in
+      let rec new_name () =
+        let name = Name_generator.new_name env#secure_random in
+        if List.mem name sessions then new_name () else name
+      in
+      let name, image =
+        match v with
+        | Name n -> (n, None)
+        | Image n -> (new_name (), Some n)
+        | Name_and_image (n, i) -> (n, Some i)
+      in
       match List.exists (String.equal name) sessions with
       | true -> Ok (Store.set_session env s name)
       | false -> (
@@ -323,9 +354,6 @@ let run (config : config) env (s : Store.t) = function
       let sesh =
         Option.value ~default:"main" (snd (Store.which_branch s env))
       in
-      let pp_commit fmt (hash, msg) =
-        Fmt.pf fmt "[%a]: %s" (text `Yellow) hash msg
-      in
       let commits = Store.commit_info s in
       let latest =
         Store.with_latest
@@ -344,7 +372,7 @@ let run (config : config) env (s : Store.t) = function
         commits;
       Ok s
   | Exec [] -> Ok s
-  | Undo -> Ok (Store.reset_hard s)
+  | Undo n -> Ok (Store.reset_hard ~n s)
   | Replay branch -> Store.replay (exec config env) s env branch
   | Merge branch -> (
       match Store.merge s env branch with

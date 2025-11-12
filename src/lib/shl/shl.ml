@@ -15,12 +15,13 @@ let print_position outx lexbuf =
     pos.pos_lnum
     (pos.pos_cnum - pos.pos_bol + 1)
 
-let of_src src =
+let of_src ?filename src =
   let lexbuf =
     match src with
     | `In_channel ic -> Lexing.from_channel ic
     | `String s -> Lexing.from_string s
   in
+  Option.iter (Lexing.set_filename lexbuf) filename;
   try Parser.expr with_debug lexbuf
   with Parser.Error ->
     Format.eprintf "%a: syntax error\n" print_position lexbuf;

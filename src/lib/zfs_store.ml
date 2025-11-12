@@ -170,6 +170,7 @@ let fetch t image =
   if Zfs.exists t.zfs (dataset :> string) Zfs.Types.dataset then
     ( cid,
       Fetch.get_env t.proc image,
+      Fetch.get_cmd t.proc image,
       get_uid_gid ~username Eio.Path.(dir / "rootfs") )
   else (
     create_and_mount t dataset;
@@ -179,6 +180,7 @@ let fetch t image =
     snapshot t (Datasets.snapshot dataset);
     ( cid,
       Fetch.get_env t.proc image,
+      Fetch.get_cmd t.proc image,
       get_uid_gid ~username Eio.Path.(dir / "rootfs") ))
 
 module Run = struct

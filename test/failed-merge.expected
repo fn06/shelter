@@ -1,2 +1,4 @@
 read-write inconsistency: {hello.txt} consider using @ replay <br> instead.
 shelter: Merged failed: Recursive merging of common ancestors: read-write inconsistency
+Failed (255) executing: @ merge exp1
+

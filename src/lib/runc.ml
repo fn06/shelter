@@ -338,11 +338,15 @@ let spawn ~sw ~before_start ~has_overlays log env config dir =
     Eio_unix.Net.import_socket_stream ~sw ~close_unix:false fd
   in
   (* Copy console socket to stdout *)
+  let stdout =
+    to_other_sink_as_well ~other:env#stdout
+      (log :> Eio.Flow.sink_ty Eio.Flow.sink)
+  in
   let () =
     Eio.Fiber.fork ~sw (fun () ->
         try
           while true do
-            Eio.Flow.copy console env#stdout
+            Eio.Flow.copy console stdout
           done
         with _ -> ())
   in
@@ -359,10 +363,6 @@ let spawn ~sw ~before_start ~has_overlays log env config dir =
       Eio.Process.run env#process_mgr [ "runc"; "delete"; id ]);
   before_start id;
   let cmd = [ "runc"; "start"; id ] in
-  let stdout =
-    to_other_sink_as_well ~other:env#stdout
-      (log :> Eio.Flow.sink_ty Eio.Flow.sink)
-  in
   Eio.Process.spawn ~sw ~stdout ~stderr:env#stdout env#process_mgr ~cwd:eio_tmp
     cmd
 

@@ -1,16 +1,20 @@
-type session = { name : string; image : string option } [@@deriving repr]
+type session =
+  | Name of string
+  | Image of string
+  | Name_and_image of string * string
+[@@deriving repr]
 
 type t =
   (* Change modes *)
   | Set_mode of History.mode
   (* Fork a new branch from an existing one,
      or switch to a branch if it exists *)
-  | Session of session (* Run a command *)
+  | Session of session option (* Run a command *)
   | Exec of string list
   (* Run a command but don't update the state *)
   | Check of string list
-  (* Undo the last command *)
-  | Undo
+  (* Undo the last [n] commands *)
+  | Undo of int
   (* Replay the current branch onto another *)
   | Replay of string
   (* Merge one branch into another *)
@@ -24,9 +28,17 @@ type t =
 let pp fmt = function
   | Set_mode R -> Fmt.pf fmt "%@ mode r"
   | Set_mode RW -> Fmt.pf fmt "%@ mode rw"
-  | Session { name; image } ->
+  | Session None -> Fmt.pf fmt "%@ session"
+  | Session (Some v) ->
+      let name, image =
+        match v with
+        | Name n -> (n, None)
+        | Image n -> ("", Some n)
+        | Name_and_image (n, i) -> (n, Some i)
+      in
       Fmt.pf fmt "%@ session %s %a" name Fmt.(option string) image
-  | Undo -> Fmt.string fmt "%@ undo"
+  | Undo 1 -> Fmt.string fmt "%@ undo"
+  | Undo n -> Fmt.pf fmt "%@ undo %i" n
   | Replay onto -> Fmt.pf fmt "%@ replay %s" onto
   | Merge into -> Fmt.pf fmt "%@ merge %s" into
   | Info `Current -> Fmt.pf fmt "%@ info"
@@ -44,7 +56,7 @@ open Cmdliner
 
 let session_name =
   let doc = "Name of the session." in
-  Arg.(required & pos 0 (some string) None & info [] ~docv:"NAME" ~doc)
+  Arg.(value & pos 0 (some string) None & info [] ~docv:"NAME" ~doc)
 
 let branch_name =
   let doc = "Name of a branch." in
@@ -54,12 +66,29 @@ let image =
   let doc = "Base image name." in
   Arg.(value & opt (some string) None & info [ "image" ] ~docv:"IMAGE" ~doc)
 
+let number_of_commits =
+  let doc = "Number of commits (> 0)" in
+  Arg.(value & pos 0 int 1 & info [] ~docv:"NOC" ~doc)
+
 let session =
-  let make_session name image = Session { name; image } in
+  let make_session name image =
+    match (name, image) with
+    | None, None -> Session None
+    | Some n, None -> Session (Some (Name n))
+    | Some n, Some i -> Session (Some (Name_and_image (n, i)))
+    | None, Some i -> Session (Some (Image i))
+  in
   let session_term = Term.(const make_session $ session_name $ image) in
   let session_info =
     let doc = "Manage a session" in
-    Cmd.info "session" ~doc
+    let man =
+      [
+        `P
+          "Session management. Simply executing @ session will list all of \
+           your available sessions.";
+      ]
+    in
+    Cmd.info "session" ~doc ~man
   in
   Cmd.v session_info session_term
 
@@ -82,8 +111,8 @@ let merge =
   Cmd.v info term
 
 let undo =
-  let make_undo = Undo in
-  let term = Term.(const make_undo) in
+  let make_undo n = Undo n in
+  let term = Term.(const make_undo $ number_of_commits) in
   let info =
     let doc = "Undo your last action." in
     Cmd.info "undo" ~doc

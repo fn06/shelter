@@ -8,7 +8,7 @@ Welcome to Shelter's documentation.
 
 Shelter is a _metashell_. A tool for managing shell sessions in a more reproducible way.
 
-To get start with Shelter, you can read the [getting started](shelter-0003) tutorial.
+To get started with Shelter, you can read the [getting started](shelter-0003) tutorial.
 For a more thorough understanding of what Shelter offers and how to use it, then please 
 follow the [documentation](shelter-0004).
 
@@ -21,5 +21,8 @@ follow the [documentation](shelter-0004).
 
 For reference documentation, we have:
 
- - The [Shelterfile syntax](shelterfile-syntax)
- - The available [meta-commands](shelter-0002)
+ - The [Shelterfile syntax](shelterfile-syntax) -- the syntax for shelterfiles, a mishmash of
+   Dockerfiles and shell scripts. These are useful for setting up branches for developement
+   or running (modest) pipelines.
+ - The available [meta-commands](shelter-0002) -- these extend past shell scripts and allow users
+   to access the more _interesting_ parts of Shelter like `@ undo` or `@ merge <branch>` for example.

@@ -1,0 +1,9 @@
+@ session undo
+echo hello > hello.txt
+echo world >> hello.txt
+@ undo
+cat hello.txt
+echo "to the" >> hello.txt
+echo world >> hello.txt
+@ undo 2
+cat hello.txt
