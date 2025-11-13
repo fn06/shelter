@@ -11,6 +11,19 @@ module Eventloop = struct
     Lwt_eio.with_event_loop ~clock:env#clock @@ fun _token -> fn env
 end
 
+let _debug_process_mgr (mgr : 'a Eio_unix.Process.mgr) : 'a Eio_unix.Process.mgr
+    =
+  let module D = struct
+    type t = unit
+
+    let spawn_unix () ~sw ?cwd ?pgid ?uid ?gid ~env ~fds ~executable args =
+      Eio.traceln "Spawning subprocess... %a" Fmt.(list string) args;
+      Eio_unix.Process.spawn_unix ~sw ?cwd ?pgid ?uid ?gid mgr ~env ~fds
+        ~executable args
+  end in
+  let module V = Eio_unix.Process.Make_mgr (D) in
+  Eio.Resource.T ((), Eio_unix.Process.Pi.mgr_unix (module V))
+
 (* Command Line *)
 open Cmdliner
 
@@ -26,6 +39,10 @@ let main =
     Eventloop.run @@ fun env ->
     let cmd_file = Option.map (Eio.Path.( / ) env#fs) cmd_file in
     let dir = state_dir env#fs "shelter" in
+    let env =
+      (* Eio_unix.Stdenv.with_env ~process_mgr:(debug_process_mgr env#process_mgr) env *)
+      env
+    in
     Shelter.main config (env :> _ Shelter.env) dir cmd_file
   in
   let t = Term.(const run $ Shelter.Engine.config_term $ cmd_file) in

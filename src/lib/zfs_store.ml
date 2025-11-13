@@ -165,9 +165,9 @@ let fetch t image =
   let cid = cid image in
   let cids = cid |> Cid.to_string in
   let dataset = Datasets.build t.pool cids in
-  let username = Fetch.get_user t.proc image in
   let dir = Eio.Path.(t.fs / ("/" ^ (Datasets.build t.pool cids :> string))) in
   if Zfs.exists t.zfs (dataset :> string) Zfs.Types.dataset then
+    let username = Fetch.get_user t.proc image in
     ( cid,
       Fetch.get_env t.proc image,
       Fetch.get_cmd t.proc image,
@@ -178,6 +178,7 @@ let fetch t image =
     Eio.Path.mkdir ~perm:0o777 Eio.Path.(dir / "merged");
     let _dir : string = Fetch.get_image ~dir ~proc:t.proc image in
     snapshot t (Datasets.snapshot dataset);
+    let username = Fetch.get_user t.proc image in
     ( cid,
       Fetch.get_env t.proc image,
       Fetch.get_cmd t.proc image,

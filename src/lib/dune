@@ -8,7 +8,17 @@
  (public_name shelter)
  (preprocess
   (pps ppx_repr))
- (libraries astring cmdliner irmin cid void zfs shl linenoise irmin-git.unix))
+ (libraries
+  astring
+  cmdliner
+  irmin
+  cid
+  void
+  zfs
+  shl
+  linenoise
+  irmin-git.unix
+  terminal))
 
 (rule
  (targets raw_flags.ml)

@@ -43,11 +43,13 @@ let get_cmd proc image =
   |> String.split_on_char '\x00'
 
 let get_image ~dir ~proc image =
+  Fmt.pr "Docker image: %s\n%!" image;
   let container_id =
     Eio.Process.parse_out proc Eio.Buf_read.take_all
       [ "docker"; "create"; "--"; image ]
     |> String.trim
   in
+  Fmt.pr "Docker image: %s\n%!" image;
   let tar = replace_slash image ^ ".tar.gz" in
   let dir_s = Eio.Path.native_exn dir in
   let () =

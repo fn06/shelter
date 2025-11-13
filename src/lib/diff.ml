@@ -88,10 +88,10 @@ let leaves =
   loop "" []
 
 let pp_diff fmt = function
-  | Modified v -> Fmt.(styled (`Fg `Yellow) string) fmt ("~ /" ^ v)
-  | Created v -> Fmt.(styled (`Fg `Green) string) fmt ("+ /" ^ v)
-  | Removed v -> Fmt.(styled (`Fg `Red) string) fmt ("- /" ^ v)
-  | Renamed (v, _) -> Fmt.(styled (`Fg `Magenta) string) fmt ("| /" ^ v)
+  | Modified v -> Logger.pp_colored `Yellow Fmt.string fmt ("~ /" ^ v)
+  | Created v -> Logger.pp_colored `Green Fmt.string fmt ("+ /" ^ v)
+  | Removed v -> Logger.pp_colored `Red Fmt.string fmt ("- /" ^ v)
+  | Renamed (v, _) -> Logger.pp_colored `Magenta Fmt.string fmt ("| /" ^ v)
 
 let pp fmt diffs =
   let tree = to_tree diffs in

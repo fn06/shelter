@@ -3,6 +3,10 @@ pin-depends:[
   [ "ppx_irmin.dev"    "git+https://github.com/mirage/irmin#eio" ]
   [ "irmin-git.dev" "git+https://github.com/mirage/irmin#eio" ]
   [ "irmin-watcher.dev" "git+https://github.com/patricoferris/irmin-watcher#675125d9e95cd09ef0c18ab1d9d6d69a26856b9f" ]
+  [ "eio.dev" "git+https://github.com/patricoferris/eio#9ffc07dedd802f844f28be1c322ccb73104e8ae1" ]
+  [ "eio_linux.dev" "git+https://github.com/patricoferris/eio#9ffc07dedd802f844f28be1c322ccb73104e8ae1" ]
+  [ "eio_posix.dev" "git+https://github.com/patricoferris/eio#9ffc07dedd802f844f28be1c322ccb73104e8ae1" ]
+  [ "eio_main.dev" "git+https://github.com/patricoferris/eio#9ffc07dedd802f844f28be1c322ccb73104e8ae1" ]
   # Opam morbig does not build
   [ "morbig.0.11.0" "git+https://github.com/colis-anr/morbig#b97a5be622a7b5539f43617e74bf9cccad1d58b9" ]
 ]

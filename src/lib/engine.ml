@@ -16,7 +16,7 @@ let config_term = Config.cmdliner
 type contents = History.t
 
 let () = Fmt.set_style_renderer Format.str_formatter `Ansi_tty
-let text c = Fmt.(styled (`Fg c) string)
+let text c = Logger.pp_colored c Fmt.string
 let pp_commit fmt (hash, msg) = Fmt.pf fmt "[%a]: %s" (text `Yellow) hash msg
 
 let pp_cid fmt cid =
@@ -75,7 +75,7 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
         let build, env, cmd, user = Zfs_store.fetch s.ctx img in
         ( build,
           env,
-          String.concat " " cmd |> String.trim,
+          List.hd cmd |> String.trim,
           Option.value ~default:(0, 0) user )
     | Zfs_store.Build.Build cid ->
         (cid, entry.pre.env, entry.pre.shell, entry.pre.user)
@@ -114,7 +114,9 @@ let exec (config : config) env (s : Store.t) (entry : History.entry) =
         entry.pre.args;
       let () =
         Eio.Path.(with_open_in (env#fs / (path :> string) / "log")) @@ fun ic ->
-        Eio.Flow.copy ic env#stdout
+        Logger.pp_rolling_window
+          ~pp_line:(Logger.pp_colored `White Fmt.string)
+          Fmt.stdout ic
       in
       let c = Eio.Path.(load (env#fs / (path :> string) / "hash")) in
       Ok (`Reset c)
@@ -400,7 +402,9 @@ let run (config : config) env (s : Store.t) = function
           (Store.get_store s) Fun.id
         |> History.latest
       in
-      let entry = { entry with pre = { entry.pre with args = command } } in
+      let entry =
+        { entry with pre = History.with_pre ~args:command entry.pre }
+      in
       try
         let new_entry, diff = exec config env s entry in
         Store.save_execution s env new_entry diff

@@ -72,7 +72,7 @@ let number_of_commits =
 
 let session =
   let make_session name image =
-    match (name, image) with
+    match (name, Option.map String.trim image) with
     | None, None -> Session None
     | Some n, None -> Session (Some (Name n))
     | Some n, Some i -> Session (Some (Name_and_image (n, i)))
